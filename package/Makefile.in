@@ -39,9 +39,14 @@ endif
 # Compute GNU_TARGET_NAME
 GNU_TARGET_NAME = $(ARCH)-$(TARGET_VENDOR)-$(TARGET_OS)-$(LIBC)$(ABI)
 
-# FLAT binary format needs uclinux
+# FLAT binary format needs uclinux, except RISC-V which needs
+# the regular linux name.
 ifeq ($(BR2_BINFMT_FLAT),y)
+ifeq ($(BR2_riscv),y)
+TARGET_OS = linux
+else
 TARGET_OS = uclinux
+endif
 else
 TARGET_OS = linux
 endif
