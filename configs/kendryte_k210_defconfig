@@ -1,3 +1,6 @@
+# Linux headers same as kernel, a 5.8 series
+BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_5_8=y
+
 BR2_riscv=y
 # BR2_COMPILER_PARANOID_UNSAFE_PATH is not set
 # BR2_UCLIBC_INSTALL_UTILS is not set
