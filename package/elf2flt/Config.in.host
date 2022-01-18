@@ -1,5 +1,5 @@
 config BR2_PACKAGE_HOST_ELF2FLT
-	bool "Enable elf2flt support?"
+	bool "Enable elf2flt support"
 	depends on BR2_arm || BR2_sh || BR2_sparc || BR2_xtensa || BR2_RISCV_64
 	depends on !BR2_USE_MMU
 	help
