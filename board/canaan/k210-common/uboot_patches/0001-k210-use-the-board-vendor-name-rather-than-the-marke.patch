@@ -1,0 +1,753 @@
+From 2afe11eb3eadec442c07c9222ab71a7270e73aa1 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Wed, 9 Feb 2022 15:11:11 +0900
+Subject: [PATCH 01/10] k210: use the board vendor name rather than the
+ marketing name
+
+"kendryte" is the marketing name for the K210 RISC-V SoC produced by
+Canaan Inc. Rather than "kendryte,k210", use the usual "canaan,k210"
+vendor,SoC compatibility string format in the device tree files and
+use the SoC name for file names.
+With these changes, the device tree files are more in sync with the
+Linux kernel DTS and drivers, making uboot device tree usable by the
+kernel.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Signed-off-by: Niklas Cassel <niklas.cassel@wdc.com>
+---
+ MAINTAINERS                                   | 12 +--
+ arch/riscv/dts/k210-maix-bit.dts              |  3 +-
+ arch/riscv/dts/k210.dtsi                      | 98 +++++++++----------
+ board/sipeed/maix/maix.c                      |  2 +-
+ doc/board/sipeed/maix.rst                     | 20 ++--
+ ...k210-sysctl.txt => canaan,k210-sysctl.txt} |  8 +-
+ ...e,k210-fpioa.txt => canaan,k210-fpioa.txt} | 12 +--
+ .../spi/snps,dw-apb-ssi.txt                   |  4 +-
+ drivers/clk/Makefile                          |  2 +-
+ drivers/clk/{clk_kendryte.c => clk_k210.c}    |  4 +-
+ drivers/pinctrl/Makefile                      |  2 +-
+ .../{pinctrl-kendryte.c => pinctrl-k210.c}    |  6 +-
+ drivers/spi/designware_spi.c                  |  4 +-
+ include/configs/sipeed-maix.h                 |  2 +-
+ include/{kendryte => k210}/pll.h              |  0
+ test/dm/k210_pll.c                            |  2 +-
+ 16 files changed, 91 insertions(+), 90 deletions(-)
+ rename doc/device-tree-bindings/mfd/{kendryte,k210-sysctl.txt => canaan,k210-sysctl.txt} (78%)
+ rename doc/device-tree-bindings/pinctrl/{kendryte,k210-fpioa.txt => canaan,k210-fpioa.txt} (91%)
+ rename drivers/clk/{clk_kendryte.c => clk_k210.c} (99%)
+ rename drivers/pinctrl/{pinctrl-kendryte.c => pinctrl-k210.c} (98%)
+ rename include/{kendryte => k210}/pll.h (100%)
+
+diff --git a/MAINTAINERS b/MAINTAINERS
+index 90666ce376..6e1e349929 100644
+--- a/MAINTAINERS
++++ b/MAINTAINERS
+@@ -1070,14 +1070,14 @@ F:	drivers/timer/andes_plmt_timer.c
+ F:	drivers/timer/sifive_clint_timer.c
+ F:	tools/prelink-riscv.c
+ 
+-RISC-V KENDRYTE
++RISC-V CANAAN KENDRYTE K210
+ M:	Sean Anderson <seanga2@gmail.com>
+ S:	Maintained
+-F:	doc/device-tree-bindings/mfd/kendryte,k210-sysctl.txt
+-F:	doc/device-tree-bindings/pinctrl/kendryte,k210-fpioa.txt
+-F:	drivers/clk/clk_kendryte.c
+-F:	drivers/pinctrl/pinctrl-kendryte.c
+-F:	include/kendryte/
++F:	doc/device-tree-bindings/mfd/canaan,k210-sysctl.txt
++F:	doc/device-tree-bindings/pinctrl/canaan,k210-fpioa.txt
++F:	drivers/clk/clk_k210.c
++F:	drivers/pinctrl/pinctrl-k210.c
++F:	include/k210/
+ 
+ RNG
+ M:	Sughosh Ganu <sughosh.ganu@linaro.org>
+diff --git a/arch/riscv/dts/k210-maix-bit.dts b/arch/riscv/dts/k210-maix-bit.dts
+index 902dcfd08a..c4bbf6b018 100644
+--- a/arch/riscv/dts/k210-maix-bit.dts
++++ b/arch/riscv/dts/k210-maix-bit.dts
+@@ -12,7 +12,8 @@
+ 
+ / {
+ 	model = "Sipeed Maix Bit 2.0";
+-	compatible = "sipeed,maix-bitm", "sipeed,maix-bit", "kendryte,k210";
++	compatible = "sipeed,maix-bitm", "sipeed,maix-bit",
++		     "canaan,kendryte-k210";
+ 
+ 	chosen {
+ 		stdout-path = "serial0:115200";
+diff --git a/arch/riscv/dts/k210.dtsi b/arch/riscv/dts/k210.dtsi
+index 8bcd3cebde..7dc2785a3e 100644
+--- a/arch/riscv/dts/k210.dtsi
++++ b/arch/riscv/dts/k210.dtsi
+@@ -15,7 +15,7 @@
+ 	 */
+ 	#address-cells = <1>;
+ 	#size-cells = <1>;
+-	compatible = "kendryte,k210";
++	compatible = "canaan,kendryte-k210";
+ 
+ 	aliases {
+ 		cpu0 = &cpu0;
+@@ -46,7 +46,7 @@
+ 		timebase-frequency = <7800000>;
+ 		cpu0: cpu@0 {
+ 			device_type = "cpu";
+-			compatible = "kendryte,k210", "sifive,rocket0", "riscv";
++			compatible = "canaan,k210", "sifive,rocket0", "riscv";
+ 			reg = <0>;
+ 			riscv,isa = "rv64imafdgc";
+ 			mmu-type = "sv39";
+@@ -63,7 +63,7 @@
+ 		};
+ 		cpu1: cpu@1 {
+ 			device_type = "cpu";
+-			compatible = "kendryte,k210", "sifive,rocket0", "riscv";
++			compatible = "canaan,k210", "sifive,rocket0", "riscv";
+ 			reg = <1>;
+ 			riscv,isa = "rv64imafdgc";
+ 			mmu-type = "sv39";
+@@ -82,7 +82,7 @@
+ 
+ 	sram: memory@80000000 {
+ 		device_type = "memory";
+-		compatible = "kendryte,k210-sram";
++		compatible = "canaan,k210-sram";
+ 		reg = <0x80000000 0x400000>,
+ 		      <0x80400000 0x200000>,
+ 		      <0x80600000 0x200000>;
+@@ -106,12 +106,12 @@
+ 	soc {
+ 		#address-cells = <1>;
+ 		#size-cells = <1>;
+-		compatible = "kendryte,k210-soc", "simple-bus";
++		compatible = "canaan,k210-soc", "simple-bus";
+ 		ranges;
+ 		interrupt-parent = <&plic0>;
+ 
+ 		debug0: debug@0 {
+-			compatible = "kendryte,k210-debug", "riscv,debug";
++			compatible = "canaan,k210-debug", "riscv,debug";
+ 			reg = <0x0 0x1000>;
+ 		};
+ 
+@@ -122,7 +122,7 @@
+ 
+ 		clint0: clint@2000000 {
+ 			#interrupt-cells = <1>;
+-			compatible = "kendryte,k210-clint", "riscv,clint0";
++			compatible = "canaan,k210-clint", "sifive,clint0", "riscv,clint0";
+ 			reg = <0x2000000 0xC000>;
+ 			interrupts-extended = <&cpu0_intc 3>, <&cpu0_intc 7>,
+ 					      <&cpu1_intc 3>, <&cpu1_intc 7>;
+@@ -131,7 +131,7 @@
+ 
+ 		plic0: interrupt-controller@C000000 {
+ 			#interrupt-cells = <1>;
+-			compatible = "kendryte,k210-plic", "riscv,plic0";
++			compatible = "canaan,k210-plic", "sifive,plic-1.0.0", "riscv,plic0";
+ 			reg = <0xC000000 0x4000000>;
+ 			interrupt-controller;
+ 			interrupts-extended = <&cpu0_intc 9>, <&cpu0_intc 11>,
+@@ -141,7 +141,7 @@
+ 		};
+ 
+ 		uarths0: serial@38000000 {
+-			compatible = "kendryte,k210-uarths", "sifive,uart0";
++			compatible = "canaan,k210-uarths", "sifive,uart0";
+ 			reg = <0x38000000 0x1000>;
+ 			interrupts = <33>;
+ 			clocks = <&sysclk K210_CLK_CPU>;
+@@ -151,7 +151,7 @@
+ 		gpio0: gpio-controller@38001000 {
+ 			#interrupt-cells = <2>;
+ 			#gpio-cells = <2>;
+-			compatible = "kendryte,k210-gpiohs", "sifive,gpio0";
++			compatible = "canaan,k210-gpiohs", "sifive,gpio0";
+ 			reg = <0x38001000 0x1000>;
+ 			interrupt-controller;
+ 			interrupts = <34 35 36 37 38 39 40 41
+@@ -164,7 +164,7 @@
+ 		};
+ 
+ 		kpu0: kpu@40800000 {
+-			compatible = "kendryte,k210-kpu";
++			compatible = "canaan,k210-kpu";
+ 			reg = <0x40800000 0xc00000>;
+ 			interrupts = <25>;
+ 			clocks = <&sysclk K210_CLK_AI>;
+@@ -172,7 +172,7 @@
+ 		};
+ 
+ 		fft0: fft@42000000 {
+-			compatible = "kendryte,k210-fft";
++			compatible = "canaan,k210-fft";
+ 			reg = <0x42000000 0x400000>;
+ 			interrupts = <26>;
+ 			clocks = <&sysclk K210_CLK_FFT>;
+@@ -181,7 +181,7 @@
+ 		};
+ 
+ 		dmac0: dma-controller@50000000 {
+-			compatible = "kendryte,k210-dmac", "snps,axi-dma-1.01a";
++			compatible = "canaan,k210-dmac", "snps,axi-dma-1.01a";
+ 			reg = <0x50000000 0x1000>;
+ 			interrupts = <27 28 29 30 31 32>;
+ 			clocks = <&sysclk K210_CLK_DMA>, <&sysclk K210_CLK_DMA>;
+@@ -199,14 +199,14 @@
+ 		apb0: bus@50200000 {
+ 			#address-cells = <1>;
+ 			#size-cells = <1>;
+-			compatible = "kendryte,k210-apb", "simple-pm-bus";
++			compatible = "canaan,k210-apb", "simple-pm-bus";
+ 			ranges;
+ 			clocks = <&sysclk K210_CLK_APB0>;
+ 
+ 			gpio1: gpio-controller@50200000 {
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+-				compatible = "kendryte,k210-gpio",
++				compatible = "canaan,k210-gpio",
+ 					     "snps,dw-apb-gpio";
+ 				reg = <0x50200000 0x80>;
+ 				clocks = <&sysclk K210_CLK_GPIO>;
+@@ -226,7 +226,7 @@
+ 			};
+ 
+ 			uart1: serial@50210000 {
+-				compatible = "kendryte,k210-uart",
++				compatible = "canaan,k210-uart",
+ 					     "snps,dw-apb-uart";
+ 				reg = <0x50210000 0x100>;
+ 				interrupts = <11>;
+@@ -242,7 +242,7 @@
+ 			};
+ 
+ 			uart2: serial@50220000 {
+-				compatible = "kendryte,k210-uart",
++				compatible = "canaan,k210-uart",
+ 					     "snps,dw-apb-uart";
+ 				reg = <0x50220000 0x100>;
+ 				interrupts = <12>;
+@@ -258,7 +258,7 @@
+ 			};
+ 
+ 			uart3: serial@50230000 {
+-				compatible = "kendryte,k210-uart",
++				compatible = "canaan,k210-uart",
+ 					     "snps,dw-apb-uart";
+ 				reg = <0x50230000 0x100>;
+ 				interrupts = <13>;
+@@ -274,7 +274,7 @@
+ 			};
+ 
+ 			spi2: spi@50240000 {
+-				compatible = "canaan,kendryte-k210-spi",
++				compatible = "canaan,k210-spi",
+ 					     "snps,dw-apb-ssi-4.01",
+ 					     "snps,dw-apb-ssi";
+ 				spi-slave;
+@@ -287,7 +287,7 @@
+ 			};
+ 
+ 			i2s0: i2s@50250000 {
+-				compatible = "kendryte,k210-i2s",
++				compatible = "canaan,k210-i2s",
+ 					     "snps,designware-i2s";
+ 				reg = <0x50250000 0x200>;
+ 				interrupts = <5>;
+@@ -298,13 +298,13 @@
+ 			};
+ 
+ 			apu0: sound@520250200 {
+-				compatible = "kendryte,k210-apu";
++				compatible = "canaan,k210-apu";
+ 				reg = <0x50250200 0x200>;
+ 				status = "disabled";
+ 			};
+ 
+ 			i2s1: i2s@50260000 {
+-				compatible = "kendryte,k210-i2s",
++				compatible = "canaan,k210-i2s",
+ 					     "snps,designware-i2s";
+ 				reg = <0x50260000 0x200>;
+ 				interrupts = <6>;
+@@ -315,7 +315,7 @@
+ 			};
+ 
+ 			i2s2: i2s@50270000 {
+-				compatible = "kendryte,k210-i2s",
++				compatible = "canaan,k210-i2s",
+ 					     "snps,designware-i2s";
+ 				reg = <0x50270000 0x200>;
+ 				interrupts = <7>;
+@@ -326,7 +326,7 @@
+ 			};
+ 
+ 			i2c0: i2c@50280000 {
+-				compatible = "kendryte,k210-i2c",
++				compatible = "canaan,k210-i2c",
+ 					     "snps,designware-i2c";
+ 				reg = <0x50280000 0x100>;
+ 				interrupts = <8>;
+@@ -336,7 +336,7 @@
+ 			};
+ 
+ 			i2c1: i2c@50290000 {
+-				compatible = "kendryte,k210-i2c",
++				compatible = "canaan,k210-i2c",
+ 					     "snps,designware-i2c";
+ 				reg = <0x50290000 0x100>;
+ 				interrupts = <9>;
+@@ -346,7 +346,7 @@
+ 			};
+ 
+ 			i2c2: i2c@502A0000 {
+-				compatible = "kendryte,k210-i2c",
++				compatible = "canaan,k210-i2c",
+ 					     "snps,designware-i2c";
+ 				reg = <0x502A0000 0x100>;
+ 				interrupts = <10>;
+@@ -356,12 +356,12 @@
+ 			};
+ 
+ 			fpioa: pinmux@502B0000 {
+-				compatible = "kendryte,k210-fpioa";
++				compatible = "canaan,k210-fpioa";
+ 				reg = <0x502B0000 0x100>;
+ 				clocks = <&sysclk K210_CLK_FPIOA>;
+ 				resets = <&sysrst K210_RST_FPIOA>;
+-				kendryte,sysctl = <&sysctl>;
+-				kendryte,power-offset = <K210_SYSCTL_POWER_SEL>;
++				canaan,k210-sysctl = <&sysctl>;
++				canaan,k210-power-offset = <K210_SYSCTL_POWER_SEL>;
+ 				pinctrl-0 = <&fpioa_jtag>;
+ 				pinctrl-names = "default";
+ 				status = "disabled";
+@@ -375,7 +375,7 @@
+ 			};
+ 
+ 			sha256: sha256@502C0000 {
+-				compatible = "kendryte,k210-sha256";
++				compatible = "canaan,k210-sha256";
+ 				reg = <0x502C0000 0x100>;
+ 				clocks = <&sysclk K210_CLK_SHA>;
+ 				resets = <&sysrst K210_RST_SHA>;
+@@ -383,7 +383,7 @@
+ 			};
+ 
+ 			timer0: timer@502D0000 {
+-				compatible = "kendryte,k210-timer",
++				compatible = "canaan,k210-timer",
+ 					     "snps,dw-apb-timer";
+ 				reg = <0x502D0000 0x100>;
+ 				interrupts = <14 15>;
+@@ -394,7 +394,7 @@
+ 			};
+ 
+ 			timer1: timer@502E0000 {
+-				compatible = "kendryte,k210-timer",
++				compatible = "canaan,k210-timer",
+ 					     "snps,dw-apb-timer";
+ 				reg = <0x502E0000 0x100>;
+ 				interrupts = <16 17>;
+@@ -405,7 +405,7 @@
+ 			};
+ 
+ 			timer2: timer@502F0000 {
+-				compatible = "kendryte,k210-timer",
++				compatible = "canaan,k210-timer",
+ 					     "snps,dw-apb-timer";
+ 				reg = <0x502F0000 0x100>;
+ 				interrupts = <18 19>;
+@@ -419,12 +419,12 @@
+ 		apb1: bus@50400000 {
+ 			#address-cells = <1>;
+ 			#size-cells = <1>;
+-			compatible = "kendryte,k210-apb", "simple-pm-bus";
++			compatible = "canaan,k210-apb", "simple-pm-bus";
+ 			ranges;
+ 			clocks = <&sysclk K210_CLK_APB1>;
+ 
+ 			wdt0: watchdog@50400000 {
+-				compatible = "kendryte,k210-wdt", "snps,dw-wdt";
++				compatible = "canaan,k210-wdt", "snps,dw-wdt";
+ 				reg = <0x50400000 0x100>;
+ 				interrupts = <21>;
+ 				clocks = <&sysclk K210_CLK_WDT0>;
+@@ -432,7 +432,7 @@
+ 			};
+ 
+ 			wdt1: watchdog@50410000 {
+-				compatible = "kendryte,k210-wdt", "snps,dw-wdt";
++				compatible = "canaan,k210-wdt", "snps,dw-wdt";
+ 				reg = <0x50410000 0x100>;
+ 				interrupts = <22>;
+ 				clocks = <&sysclk K210_CLK_WDT1>;
+@@ -443,7 +443,7 @@
+ 			otp0: nvmem@50420000 {
+ 				#address-cells = <1>;
+ 				#size-cells = <1>;
+-				compatible = "kendryte,k210-otp";
++				compatible = "canaan,k210-otp";
+ 				reg = <0x50420000 0x100>,
+ 				      <0x88000000 0x20000>;
+ 				reg-names = "reg", "mem";
+@@ -480,18 +480,18 @@
+ 			};
+ 
+ 			dvp0: camera@50430000 {
+-				compatible = "kendryte,k210-dvp";
++				compatible = "canaan,k210-dvp";
+ 				reg = <0x50430000 0x100>;
+ 				interrupts = <24>;
+ 				clocks = <&sysclk K210_CLK_DVP>;
+ 				resets = <&sysrst K210_RST_DVP>;
+-				kendryte,sysctl = <&sysctl>;
+-				kendryte,misc-offset = <K210_SYSCTL_MISC>;
++				canaan,k210-sysctl = <&sysctl>;
++				canaan,k210-misc-offset = <K210_SYSCTL_MISC>;
+ 				status = "disabled";
+ 			};
+ 
+ 			sysctl: syscon@50440000 {
+-				compatible = "kendryte,k210-sysctl",
++				compatible = "canaan,k210-sysctl",
+ 					     "syscon", "simple-mfd";
+ 				reg = <0x50440000 0x100>;
+ 				reg-io-width = <4>;
+@@ -499,7 +499,7 @@
+ 
+ 				sysclk: clock-controller {
+ 					#clock-cells = <1>;
+-					compatible = "kendryte,k210-clk";
++					compatible = "canaan,k210-clk";
+ 					clocks = <&in0>;
+ 					assigned-clocks = <&sysclk K210_CLK_PLL1>;
+ 					assigned-clock-rates = <390000000>;
+@@ -507,7 +507,7 @@
+ 				};
+ 
+ 				sysrst: reset-controller {
+-					compatible = "kendryte,k210-rst",
++					compatible = "canaan,k210-rst",
+ 						     "syscon-reset";
+ 					#reset-cells = <1>;
+ 					regmap = <&sysctl>;
+@@ -526,7 +526,7 @@
+ 			};
+ 
+ 			aes0: aes@50450000 {
+-				compatible = "kendryte,k210-aes";
++				compatible = "canaan,k210-aes";
+ 				reg = <0x50450000 0x100>;
+ 				clocks = <&sysclk K210_CLK_AES>;
+ 				resets = <&sysrst K210_RST_AES>;
+@@ -534,7 +534,7 @@
+ 			};
+ 
+ 			rtc: rtc@50460000 {
+-				compatible = "kendryte,k210-rtc";
++				compatible = "canaan,k210-rtc";
+ 				reg = <0x50460000 0x100>;
+ 				clocks = <&in0>;
+ 				resets = <&sysrst K210_RST_RTC>;
+@@ -546,14 +546,14 @@
+ 		apb2: bus@52000000 {
+ 			#address-cells = <1>;
+ 			#size-cells = <1>;
+-			compatible = "kendryte,k210-apb", "simple-pm-bus";
++			compatible = "canaan,k210-apb", "simple-pm-bus";
+ 			ranges;
+ 			clocks = <&sysclk K210_CLK_APB2>;
+ 
+ 			spi0: spi@52000000 {
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+-				compatible = "canaan,kendryte-k210-spi",
++				compatible = "canaan,k210-spi",
+ 					     "snps,dw-apb-ssi-4.01",
+ 					     "snps,dw-apb-ssi";
+ 				reg = <0x52000000 0x100>;
+@@ -570,7 +570,7 @@
+ 			spi1: spi@53000000 {
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+-				compatible = "canaan,kendryte-k210-spi",
++				compatible = "canaan,k210-spi",
+ 					     "snps,dw-apb-ssi-4.01",
+ 					     "snps,dw-apb-ssi";
+ 				reg = <0x53000000 0x100>;
+@@ -587,7 +587,7 @@
+ 			spi3: spi@54000000 {
+ 				#address-cells = <1>;
+ 				#size-cells = <0>;
+-				compatible = "canaan,kendryte-k210-ssi",
++				compatible = "canaan,k210-ssi",
+ 					     "snps,dwc-ssi-1.01a";
+ 				reg = <0x54000000 0x200>;
+ 				interrupts = <4>;
+diff --git a/board/sipeed/maix/maix.c b/board/sipeed/maix/maix.c
+index 52e4fee2f0..a218278cb3 100644
+--- a/board/sipeed/maix/maix.c
++++ b/board/sipeed/maix/maix.c
+@@ -22,7 +22,7 @@ static int sram_init(void)
+ 	struct clk clk;
+ 
+ 	/* Enable RAM clocks */
+-	memory = ofnode_by_compatible(ofnode_null(), "kendryte,k210-sram");
++	memory = ofnode_by_compatible(ofnode_null(), "canaan,k210-sram");
+ 	if (ofnode_equal(memory, ofnode_null()))
+ 		return -ENOENT;
+ 
+diff --git a/doc/board/sipeed/maix.rst b/doc/board/sipeed/maix.rst
+index ef79297ef0..903f8831d7 100644
+--- a/doc/board/sipeed/maix.rst
++++ b/doc/board/sipeed/maix.rst
+@@ -4,16 +4,16 @@
+ MAIX
+ ====
+ 
+-Several of the Sipeed Maix series of boards cotain the Kendryte K210 processor,
+-a 64-bit RISC-V CPU. This processor contains several peripherals to accelerate
+-neural network processing and other "ai" tasks. This includes a "KPU" neural
+-network processor, an audio processor supporting beamforming reception, and a
+-digital video port supporting capture and output at VGA resolution. Other
+-peripherals include 8M of SRAM (accessible with and without caching); remappable
+-pins, including 40 GPIOs; AES, FFT, and SHA256 accelerators; a DMA controller;
+-and I2C, I2S, and SPI controllers. Maix peripherals vary, but include spi flash;
+-on-board usb-serial bridges; ports for cameras, displays, and sd cards; and
+-ESP32 chips.
++Several of the Sipeed Maix series of boards contain the Kendryte K210 processor,
++a 64-bit RISC-V CPU produced by Canaan Inc. This processor contains several
++peripherals to accelerate neural network processing and other "ai" tasks. This
++includes a "KPU" neural network processor, an audio processor supporting
++beamforming reception, and a digital video port supporting capture and output at
++VGA resolution. Other peripherals include 8M of SRAM (accessible with and
++without caching); remappable pins, including 40 GPIOs; AES, FFT, and SHA256
++accelerators; a DMA controller; and I2C, I2S, and SPI controllers. Maix
++peripherals vary, but include spi flash; on-board usb-serial bridges; ports for
++cameras, displays, and sd cards; and ESP32 chips.
+ 
+ Currently, only the Sipeed MAIX BiT V2.0 (bitm) and Sipeed MAIXDUINO are
+ supported, but the boards are fairly similar.
+diff --git a/doc/device-tree-bindings/mfd/kendryte,k210-sysctl.txt b/doc/device-tree-bindings/mfd/canaan,k210-sysctl.txt
+similarity index 78%
+rename from doc/device-tree-bindings/mfd/kendryte,k210-sysctl.txt
+rename to doc/device-tree-bindings/mfd/canaan,k210-sysctl.txt
+index 5b24abcb62..e48b164fc0 100644
+--- a/doc/device-tree-bindings/mfd/kendryte,k210-sysctl.txt
++++ b/doc/device-tree-bindings/mfd/canaan,k210-sysctl.txt
+@@ -6,7 +6,7 @@ be reference by other bindings which need a phandle to the K210 sysctl regmap.
+ 
+ Required properties:
+ - compatible: should be
+-	"kendryte,k210-sysctl", "syscon", "simple-mfd"
++	"canaan,k210-sysctl", "syscon", "simple-mfd"
+ - reg: address and length of the sysctl registers
+ - reg-io-width: must be <4>
+ 
+@@ -15,18 +15,18 @@ Clock sub-node
+ This node is a binding for the clock tree driver
+ 
+ Required properties:
+-- compatible: should be "kendryte,k210-clk"
++- compatible: should be "canaan,k210-clk"
+ - clocks: phandle to the "in0" external oscillator
+ - #clock-cells: must be <1>
+ 
+ Example:
+ sysctl: syscon@50440000 {
+-	compatible = "kendryte,k210-sysctl", "syscon", "simple-mfd";
++	compatible = "canaan,k210-sysctl", "syscon", "simple-mfd";
+ 	reg = <0x50440000 0x100>;
+ 	reg-io-width = <4>;
+ 
+ 	sysclk: clock-controller {
+-		compatible = "kendryte,k210-clk";
++		compatible = "canaan,k210-clk";
+ 		clocks = <&in0>;
+ 		#clock-cells = <1>;
+ 	};
+diff --git a/doc/device-tree-bindings/pinctrl/kendryte,k210-fpioa.txt b/doc/device-tree-bindings/pinctrl/canaan,k210-fpioa.txt
+similarity index 91%
+rename from doc/device-tree-bindings/pinctrl/kendryte,k210-fpioa.txt
+rename to doc/device-tree-bindings/pinctrl/canaan,k210-fpioa.txt
+index 73871f5930..deca0cfab7 100644
+--- a/doc/device-tree-bindings/pinctrl/kendryte,k210-fpioa.txt
++++ b/doc/device-tree-bindings/pinctrl/canaan,k210-fpioa.txt
+@@ -5,10 +5,10 @@ in Kendryte K210 SoCs. Any of the 256 functions can be mapped to any of the 48
+ pins.
+ 
+ Required properties:
+-- compatible: should be "kendryte,k210-fpioa"
++- compatible: should be "canaan,k210-fpioa"
+ - reg: address and length of the FPIOA registers
+-- kendryte,sysctl: phandle to the "sysctl" register map node
+-- kendryte,power-offset: offset in the register map of the power bank control
++- canaan,sysctl: phandle to the "sysctl" register map node
++- canaan,k210-power-offset: offset in the register map of the power bank control
+   register (in bytes)
+ 
+ Configuration nodes
+@@ -54,10 +54,10 @@ Notes on specific properties include:
+ 
+ Example:
+ fpioa: pinmux@502B0000 {
+-	compatible = "kendryte,k210-fpioa";
++	compatible = "canaan,k210-fpioa";
+ 	reg = <0x502B0000 0x100>;
+-	kendryte,sysctl = <&sysctl>;
+-	kendryte,power-offset = <K210_SYSCTL_POWER_SEL>;
++	canaan,k210-sysctl = <&sysctl>;
++	canaan,k210-power-offset = <K210_SYSCTL_POWER_SEL>;
+ 
+ 	/* JTAG running at 3.3V and driven at 11 mA */
+ 	fpioa_jtag: jtag {
+diff --git a/doc/device-tree-bindings/spi/snps,dw-apb-ssi.txt b/doc/device-tree-bindings/spi/snps,dw-apb-ssi.txt
+index 8d2888fbe3..7a0f11c53b 100644
+--- a/doc/device-tree-bindings/spi/snps,dw-apb-ssi.txt
++++ b/doc/device-tree-bindings/spi/snps,dw-apb-ssi.txt
+@@ -5,8 +5,8 @@ Required properties:
+ - compatible : One of
+   "altr,socfpga-spi",
+   "altr,socfpga-arria10-spi",
+-  "canaan,kendryte-k210-spi",
+-  "canaan,kendryte-k210-ssi",
++  "canaan,k210-spi",
++  "canaan,k210-ssi",
+   "intel,stratix10-spi",
+   "intel,agilex-spi",
+   "mscc,ocelot-spi",
+diff --git a/drivers/clk/Makefile b/drivers/clk/Makefile
+index 711ae5bc29..bf7e4904f3 100644
+--- a/drivers/clk/Makefile
++++ b/drivers/clk/Makefile
+@@ -28,7 +28,7 @@ obj-$(CONFIG_CLK_BOSTON) += clk_boston.o
+ obj-$(CONFIG_CLK_EXYNOS) += exynos/
+ obj-$(CONFIG_$(SPL_TPL_)CLK_INTEL) += intel/
+ obj-$(CONFIG_CLK_HSDK) += clk-hsdk-cgu.o
+-obj-$(CONFIG_CLK_K210) += clk_kendryte.o
++obj-$(CONFIG_CLK_K210) += clk_k210.o
+ obj-$(CONFIG_CLK_MPC83XX) += mpc83xx_clk.o
+ obj-$(CONFIG_CLK_MPFS) += microchip/
+ obj-$(CONFIG_CLK_OCTEON) += clk_octeon.o
+diff --git a/drivers/clk/clk_kendryte.c b/drivers/clk/clk_k210.c
+similarity index 99%
+rename from drivers/clk/clk_kendryte.c
+rename to drivers/clk/clk_k210.c
+index 97efda5b6f..1961efaa5e 100644
+--- a/drivers/clk/clk_kendryte.c
++++ b/drivers/clk/clk_k210.c
+@@ -14,7 +14,7 @@
+ #include <serial.h>
+ #include <dt-bindings/clock/k210-sysctl.h>
+ #include <dt-bindings/mfd/k210-sysctl.h>
+-#include <kendryte/pll.h>
++#include <k210/pll.h>
+ #include <linux/bitfield.h>
+ 
+ DECLARE_GLOBAL_DATA_PTR;
+@@ -1271,7 +1271,7 @@ static int k210_clk_probe(struct udevice *dev)
+ }
+ 
+ static const struct udevice_id k210_clk_ids[] = {
+-	{ .compatible = "kendryte,k210-clk" },
++	{ .compatible = "canaan,k210-clk" },
+ 	{ },
+ };
+ 
+diff --git a/drivers/pinctrl/Makefile b/drivers/pinctrl/Makefile
+index 05b71f2f13..7c5096ab68 100644
+--- a/drivers/pinctrl/Makefile
++++ b/drivers/pinctrl/Makefile
+@@ -17,7 +17,7 @@ obj-$(CONFIG_PINCTRL_SANDBOX)	+= pinctrl-sandbox.o
+ obj-$(CONFIG_PINCTRL_UNIPHIER)	+= uniphier/
+ obj-$(CONFIG_PINCTRL_PIC32)	+= pinctrl_pic32.o
+ obj-$(CONFIG_PINCTRL_EXYNOS)	+= exynos/
+-obj-$(CONFIG_PINCTRL_K210)	+= pinctrl-kendryte.o
++obj-$(CONFIG_PINCTRL_K210)	+= pinctrl-k210.o
+ obj-$(CONFIG_PINCTRL_MESON)	+= meson/
+ obj-$(CONFIG_PINCTRL_MTK)	+= mediatek/
+ obj-$(CONFIG_PINCTRL_MSCC)	+= mscc/
+diff --git a/drivers/pinctrl/pinctrl-kendryte.c b/drivers/pinctrl/pinctrl-k210.c
+similarity index 98%
+rename from drivers/pinctrl/pinctrl-kendryte.c
+rename to drivers/pinctrl/pinctrl-k210.c
+index 09d51ca676..bb5153c673 100644
+--- a/drivers/pinctrl/pinctrl-kendryte.c
++++ b/drivers/pinctrl/pinctrl-k210.c
+@@ -692,13 +692,13 @@ static int k210_pc_probe(struct udevice *dev)
+ 	if (ret && ret != -ENOSYS && ret != -ENOTSUPP)
+ 		goto err;
+ 
+-	priv->sysctl = syscon_regmap_lookup_by_phandle(dev, "kendryte,sysctl");
++	priv->sysctl = syscon_regmap_lookup_by_phandle(dev, "canaan,k210-sysctl");
+ 	if (IS_ERR(priv->sysctl)) {
+ 		ret = -ENODEV;
+ 		goto err;
+ 	}
+ 
+-	ret = dev_read_u32(dev, "kendryte,power-offset", &priv->power_offset);
++	ret = dev_read_u32(dev, "canaan,k210-power-offset", &priv->power_offset);
+ 	if (ret)
+ 		goto err;
+ 
+@@ -726,7 +726,7 @@ err:
+ }
+ 
+ static const struct udevice_id k210_pc_ids[] = {
+-	{ .compatible = "kendryte,k210-fpioa" },
++	{ .compatible = "canaan,k210-fpioa" },
+ 	{ }
+ };
+ 
+diff --git a/drivers/spi/designware_spi.c b/drivers/spi/designware_spi.c
+index 742121140d..788e5969a4 100644
+--- a/drivers/spi/designware_spi.c
++++ b/drivers/spi/designware_spi.c
+@@ -758,8 +758,8 @@ static const struct udevice_id dw_spi_ids[] = {
+ 	 */
+ 	{ .compatible = "altr,socfpga-spi", .data = (ulong)dw_spi_apb_init },
+ 	{ .compatible = "altr,socfpga-arria10-spi", .data = (ulong)dw_spi_apb_init },
+-	{ .compatible = "canaan,kendryte-k210-spi", .data = (ulong)dw_spi_apb_init },
+-	{ .compatible = "canaan,kendryte-k210-ssi", .data = (ulong)dw_spi_dwc_init },
++	{ .compatible = "canaan,k210-spi", .data = (ulong)dw_spi_apb_init },
++	{ .compatible = "canaan,k210-ssi", .data = (ulong)dw_spi_dwc_init },
+ 	{ .compatible = "intel,stratix10-spi", .data = (ulong)dw_spi_apb_init },
+ 	{ .compatible = "intel,agilex-spi", .data = (ulong)dw_spi_apb_init },
+ 	{ .compatible = "mscc,ocelot-spi", .data = (ulong)dw_spi_apb_init },
+diff --git a/include/configs/sipeed-maix.h b/include/configs/sipeed-maix.h
+index 1f74702ea7..1cc2992c80 100644
+--- a/include/configs/sipeed-maix.h
++++ b/include/configs/sipeed-maix.h
+@@ -20,7 +20,7 @@
+ 	"fdt_addr_r=0x80400000\0" \
+ 	"scriptaddr=0x80020000\0" \
+ 	"kernel_addr_r=0x80060000\0" \
+-	"fdtfile=kendryte/" CONFIG_DEFAULT_DEVICE_TREE ".dtb\0" \
++	"fdtfile=k210/" CONFIG_DEFAULT_DEVICE_TREE ".dtb\0" \
+ 	"k210_bootcmd=load mmc 0:1 $loadaddr /uImage && " \
+ 		"load mmc 0:1 $fdt_addr_r /k210.dtb && " \
+ 		"bootm $loadaddr - $fdt_addr_r\0"
+diff --git a/include/kendryte/pll.h b/include/k210/pll.h
+similarity index 100%
+rename from include/kendryte/pll.h
+rename to include/k210/pll.h
+diff --git a/test/dm/k210_pll.c b/test/dm/k210_pll.c
+index f55379f336..a0cc84c396 100644
+--- a/test/dm/k210_pll.c
++++ b/test/dm/k210_pll.c
+@@ -7,7 +7,7 @@
+ /* For DIV_ROUND_DOWN_ULL, defined in linux/kernel.h */
+ #include <div64.h>
+ #include <dm/test.h>
+-#include <kendryte/pll.h>
++#include <k210/pll.h>
+ #include <test/ut.h>
+ 
+ static int dm_test_k210_pll_calc_config(u32 rate, u32 rate_in,
+-- 
+2.35.1
+

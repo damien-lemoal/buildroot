@@ -1,0 +1,79 @@
+From 1b9277d10530074ee35d7c387431b7319ad44109 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Wed, 9 Feb 2022 15:11:13 +0900
+Subject: [PATCH 03/10] k210: dts: align fpioa node with Linux
+
+Linux kernel fpioa pinctrl driver expects the sysctl phandle and the
+power bit offset of the fpioa device to be specified as a single
+property "canaan,k210-sysctl-power".
+Replace the "canaan,k210-sysctl" and "canaan,k210-power-offset"
+properties with "canaan,k210-sysctl-power" to satisfy the Linux kernel
+requirements. This new property is parsed using the existing function
+dev_read_phandle_with_args().
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Signed-off-by: Niklas Cassel <niklas.cassel@wdc.com>
+Reviewed-by: Sean Anderson <seanga2@gmail.com>
+---
+ arch/riscv/dts/k210.dtsi       |  3 +--
+ drivers/pinctrl/pinctrl-k210.c | 19 ++++++++++++++-----
+ 2 files changed, 15 insertions(+), 7 deletions(-)
+
+diff --git a/arch/riscv/dts/k210.dtsi b/arch/riscv/dts/k210.dtsi
+index 5c88c8ea8e..cf5c2360fb 100644
+--- a/arch/riscv/dts/k210.dtsi
++++ b/arch/riscv/dts/k210.dtsi
+@@ -378,8 +378,7 @@
+ 					 <&sysclk K210_CLK_APB0>;
+ 				clock-names = "ref", "pclk";
+ 				resets = <&sysrst K210_RST_FPIOA>;
+-				canaan,k210-sysctl = <&sysctl>;
+-				canaan,k210-power-offset = <K210_SYSCTL_POWER_SEL>;
++				canaan,k210-sysctl-power = <&sysctl K210_SYSCTL_POWER_SEL>;
+ 				pinctrl-0 = <&fpioa_jtag>;
+ 				pinctrl-names = "default";
+ 				status = "disabled";
+diff --git a/drivers/pinctrl/pinctrl-k210.c b/drivers/pinctrl/pinctrl-k210.c
+index bb5153c673..63084ae837 100644
+--- a/drivers/pinctrl/pinctrl-k210.c
++++ b/drivers/pinctrl/pinctrl-k210.c
+@@ -679,6 +679,7 @@ static int k210_pc_probe(struct udevice *dev)
+ {
+ 	int ret, i, j;
+ 	struct k210_pc_priv *priv = dev_get_priv(dev);
++	struct ofnode_phandle_args args;
+ 
+ 	priv->fpioa = dev_read_addr_ptr(dev);
+ 	if (!priv->fpioa)
+@@ -692,15 +693,23 @@ static int k210_pc_probe(struct udevice *dev)
+ 	if (ret && ret != -ENOSYS && ret != -ENOTSUPP)
+ 		goto err;
+ 
+-	priv->sysctl = syscon_regmap_lookup_by_phandle(dev, "canaan,k210-sysctl");
++	ret = dev_read_phandle_with_args(dev, "canaan,k210-sysctl-power",
++					NULL, 1, 0, &args);
++        if (ret)
++		goto err;
++
++	if (args.args_count != 1) {
++		ret = -EINVAL;
++		goto err;
++        }
++
++	priv->sysctl = syscon_node_to_regmap(args.node);
+ 	if (IS_ERR(priv->sysctl)) {
+-		ret = -ENODEV;
++		ret = PTR_ERR(priv->sysctl);
+ 		goto err;
+ 	}
+ 
+-	ret = dev_read_u32(dev, "canaan,k210-power-offset", &priv->power_offset);
+-	if (ret)
+-		goto err;
++	priv->power_offset = args.args[0];
+ 
+ 	debug("%s: fpioa = %p sysctl = %p power offset = %x\n", __func__,
+ 	      priv->fpioa, (void *)priv->sysctl->ranges[0].start,
+-- 
+2.35.1
+

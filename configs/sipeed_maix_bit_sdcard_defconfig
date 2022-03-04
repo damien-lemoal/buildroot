@@ -45,6 +45,7 @@ BR2_ROOTFS_POST_SCRIPT_ARGS="-c board/sipeed/maix-bit/genimage.cfg"
 
 # Bootloader and related host tools
 BR2_TARGET_UBOOT=y
+BR2_TARGET_UBOOT_PATCH="board/canaan/k210-common/uboot_patches"
 BR2_TARGET_UBOOT_BUILD_SYSTEM_KCONFIG=y
 BR2_TARGET_UBOOT_CONFIG_FRAGMENT_FILES="board/canaan/k210-common/uboot.config"
 BR2_TARGET_UBOOT_BOARD_DEFCONFIG="sipeed_maix_bitm"

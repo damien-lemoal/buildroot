@@ -1,0 +1,41 @@
+From 0b215e4af71ec61039a3b3b73b609d296108679c Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <niklas.cassel@wdc.com>
+Date: Tue, 1 Mar 2022 10:57:50 +0100
+Subject: [PATCH 04/10] k210: dts: align plic node with Linux
+
+The Linux PLIC interrupt-controller driver actually initializes the hart
+context registers in the PLIC driver exactly in the same order as
+specified in the interrupts-extended device tree property. See the device
+tree binding [1].
+
+The ordering of the interrupts is therefore essential in order to
+configure the PLIC correctly.
+
+Fix the order so that we will have sane IRQ behavior when booting Linux
+with the u-boot device tree.
+
+[1] https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/Documentation/devicetree/bindings/interrupt-controller/sifive,plic-1.0.0.yaml
+
+Signed-off-by: Niklas Cassel <niklas.cassel@wdc.com>
+---
+ arch/riscv/dts/k210.dtsi | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/arch/riscv/dts/k210.dtsi b/arch/riscv/dts/k210.dtsi
+index cf5c2360fb..3cc8379133 100644
+--- a/arch/riscv/dts/k210.dtsi
++++ b/arch/riscv/dts/k210.dtsi
+@@ -134,8 +134,8 @@
+ 			compatible = "canaan,k210-plic", "sifive,plic-1.0.0", "riscv,plic0";
+ 			reg = <0xC000000 0x4000000>;
+ 			interrupt-controller;
+-			interrupts-extended = <&cpu0_intc 9>, <&cpu0_intc 11>,
+-					      <&cpu1_intc 9>, <&cpu1_intc 11>;
++			interrupts-extended = <&cpu0_intc 11>, <&cpu0_intc 9>,
++					      <&cpu1_intc 11>, <&cpu1_intc 9>;
+ 			riscv,ndev = <65>;
+ 			riscv,max-priority = <7>;
+ 		};
+-- 
+2.35.1
+

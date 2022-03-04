@@ -1,0 +1,46 @@
+From 82cb7b134435028b7f531a7db841474c7a0ce7b7 Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <niklas.cassel@wdc.com>
+Date: Tue, 8 Feb 2022 23:08:22 +0100
+Subject: [PATCH 09/10] spi: dw: Fix broken dw_spi_mem_ops()
+
+The driver is currently using sizeof(op->cmd.opcode) in the op_len
+calculation. Commit d15de623013c ("spi: spi-mem: allow specifying a
+command's extension") changed op->cmd.opcode from one byte to two.
+
+Instead, a new struct member op->cmd.nbytes is supposed to be used.
+For regular commands op->cmd.nbytes will be one.
+
+Commit d15de623013c ("spi: spi-mem: allow specifying a command's
+extension") did update some drivers that overload the generic mem_ops()
+implementation, but forgot to update dw_spi_mem_ops().
+
+Calculating op_len incorrectly causes dw_spi_mem_ops() to misbehave, since
+op_len is used to determine how many bytes that should be read/written.
+
+On the canaan k210 board, this causes the probe of the SPI flash to fail.
+
+Fix the op_len calculation in dw_spi_mem_ops(). Doing so results in
+working SPI flash on the canaan k210 board.
+
+Fixes: d15de623013c ("spi: spi-mem: allow specifying a command's extension")
+Signed-off-by: Niklas Cassel <niklas.cassel@wdc.com>
+---
+ drivers/spi/designware_spi.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/spi/designware_spi.c b/drivers/spi/designware_spi.c
+index dcc45b8066..47bea0b376 100644
+--- a/drivers/spi/designware_spi.c
++++ b/drivers/spi/designware_spi.c
+@@ -586,7 +586,7 @@ static int dw_spi_exec_op(struct spi_slave *slave, const struct spi_mem_op *op)
+ 	int pos, i, ret = 0;
+ 	struct udevice *bus = slave->dev->parent;
+ 	struct dw_spi_priv *priv = dev_get_priv(bus);
+-	u8 op_len = sizeof(op->cmd.opcode) + op->addr.nbytes + op->dummy.nbytes;
++	u8 op_len = op->cmd.nbytes + op->addr.nbytes + op->dummy.nbytes;
+ 	u8 op_buf[op_len];
+ 	u32 cr0;
+ 
+-- 
+2.35.1
+

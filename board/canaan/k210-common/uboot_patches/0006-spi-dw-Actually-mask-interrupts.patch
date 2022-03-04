@@ -1,0 +1,46 @@
+From f736c9b958f402c71704968b5c2c2f76340b5537 Mon Sep 17 00:00:00 2001
+From: Sean Anderson <seanga2@gmail.com>
+Date: Fri, 2 Apr 2021 19:05:09 -0400
+Subject: [PATCH 06/10] spi: dw: Actually mask interrupts
+
+The designware spi driver unconditionally uses polling.
+
+The comment to spi_hw_init() also states that the function should disable
+interrupts.
+
+According to the DesignWare DW_apb_ssi Databook, value 0xff in IMR enables
+all interrupts. Since we want to mask all interrupts write 0x0 instead.
+
+On the canaan k210 board, pressing the reset button twice to reset the
+board will run u-boot. If u-boot boots Linux without having SPI interrupts
+masked, Linux will hang as soon as interrupts are enabled, because of an
+interrupt storm.
+
+Properly masking the SPI interrupts in u-boot allows us to successfully
+boot Linux, even after resetting the board.
+
+Fixes: 5bef6fd79f94 ("spi: Add designware master SPI DM driver used on SoCFPGA")
+Signed-off-by: Sean Anderson <seanga2@gmail.com>
+[Niklas: rewrite commit message]
+Signed-off-by: Niklas Cassel <niklas.cassel@wdc.com>
+Reviewed-by: Sean Anderson <seanga2@gmail.com>
+---
+ drivers/spi/designware_spi.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/spi/designware_spi.c b/drivers/spi/designware_spi.c
+index 070dba56f3..dcc45b8066 100644
+--- a/drivers/spi/designware_spi.c
++++ b/drivers/spi/designware_spi.c
+@@ -266,7 +266,7 @@ static int dw_spi_of_to_plat(struct udevice *bus)
+ static void spi_hw_init(struct udevice *bus, struct dw_spi_priv *priv)
+ {
+ 	dw_write(priv, DW_SPI_SSIENR, 0);
+-	dw_write(priv, DW_SPI_IMR, 0xff);
++	dw_write(priv, DW_SPI_IMR, 0);
+ 	dw_write(priv, DW_SPI_SSIENR, 1);
+ 
+ 	/*
+-- 
+2.35.1
+
