@@ -1,0 +1,36 @@
+From 9b73942ec0fe71f5f4dc381b85bbe0640fbb926c Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <niklas.cassel@wdc.com>
+Date: Thu, 17 Feb 2022 16:47:57 +0100
+Subject: [PATCH 1/4] spi: dw: assert reset before deasserting reset
+
+Simply deasserting reset just ensures that the hardware is taken out of
+reset, if it was booted with the hardware reset asserted.
+
+In order actually reset the SPI controller, we need to assert reset before
+deasserting.
+
+By doing this, we ensure that the hardware is not in some bad state, and we
+ensure that the hardware registers get set to their reset default, clearing
+any setting set by e.g. a bootloader.
+
+Signed-off-by: Niklas Cassel <niklas.cassel@wdc.com>
+---
+ drivers/spi/spi-dw-mmio.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/spi/spi-dw-mmio.c b/drivers/spi/spi-dw-mmio.c
+index 5101c4c6017b..eb1dacb45ca2 100644
+--- a/drivers/spi/spi-dw-mmio.c
++++ b/drivers/spi/spi-dw-mmio.c
+@@ -289,6 +289,8 @@ static int dw_spi_mmio_probe(struct platform_device *pdev)
+ 		ret = PTR_ERR(dwsmmio->rstc);
+ 		goto out_clk;
+ 	}
++	reset_control_assert(dwsmmio->rstc);
++	udelay(2);
+ 	reset_control_deassert(dwsmmio->rstc);
+ 
+ 	dws->bus_num = pdev->id;
+-- 
+2.35.1
+

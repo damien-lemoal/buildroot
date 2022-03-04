@@ -1,0 +1,82 @@
+From c6d9775943bbf94c61f2d329c7d55f7fec45e1ea Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <niklas.cassel@wdc.com>
+Date: Mon, 28 Feb 2022 14:13:13 +0100
+Subject: [PATCH 2/4] irqchip/sifive-plic: Improve naming scheme for per
+ context offsets
+
+The PLIC supports a fixed number of contexts (15872).
+Each context has fixed register offsets in PLIC.
+
+The number of contexts that we need to initialize depends on the privilege
+modes supported by each hart. Therefore, this mapping between PLIC context
+registers to hart privilege modes is platform specific, and is currently
+supplied via device tree.
+
+For example, canaan,k210 has the following mapping:
+Context0: hart0 M-mode
+Context1: hart0 S-mode
+Context2: hart1 M-mode
+Context3: hart1 S-mode
+
+While sifive,fu540 has the following mapping:
+Context0: hart0 M-mode
+Context1: hart1 M-mode
+Context2: hart1 S-mode
+
+Because the number of contexts per hart is not fixed, the names
+ENABLE_PER_HART and CONTEXT_PER_HART for the register offsets are quite
+confusing and might mislead the reader to think that these are fixed
+register offsets per hart.
+
+Rename the offsets to more clearly highlight that these are per PLIC
+context and not per hart.
+
+Signed-off-by: Niklas Cassel <niklas.cassel@wdc.com>
+Reviewed-by: Anup Patel <anup@brainfault.org>
+---
+ drivers/irqchip/irq-sifive-plic.c | 14 +++++++-------
+ 1 file changed, 7 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/irqchip/irq-sifive-plic.c b/drivers/irqchip/irq-sifive-plic.c
+index 09cc98266d30..fc9da94eb816 100644
+--- a/drivers/irqchip/irq-sifive-plic.c
++++ b/drivers/irqchip/irq-sifive-plic.c
+@@ -44,8 +44,8 @@
+  * Each hart context has a vector of interrupt enable bits associated with it.
+  * There's one bit for each interrupt source.
+  */
+-#define ENABLE_BASE			0x2000
+-#define     ENABLE_PER_HART		0x80
++#define CONTEXT_ENABLE_BASE		0x2000
++#define     CONTEXT_ENABLE_SIZE		0x80
+ 
+ /*
+  * Each hart context has a set of control registers associated with it.  Right
+@@ -53,7 +53,7 @@
+  * take an interrupt, and a register to claim interrupts.
+  */
+ #define CONTEXT_BASE			0x200000
+-#define     CONTEXT_PER_HART		0x1000
++#define     CONTEXT_SIZE		0x1000
+ #define     CONTEXT_THRESHOLD		0x00
+ #define     CONTEXT_CLAIM		0x04
+ 
+@@ -361,11 +361,11 @@ static int __init plic_init(struct device_node *node,
+ 
+ 		cpumask_set_cpu(cpu, &priv->lmask);
+ 		handler->present = true;
+-		handler->hart_base =
+-			priv->regs + CONTEXT_BASE + i * CONTEXT_PER_HART;
++		handler->hart_base = priv->regs + CONTEXT_BASE +
++			i * CONTEXT_SIZE;
+ 		raw_spin_lock_init(&handler->enable_lock);
+-		handler->enable_base =
+-			priv->regs + ENABLE_BASE + i * ENABLE_PER_HART;
++		handler->enable_base = priv->regs + CONTEXT_ENABLE_BASE +
++			i * CONTEXT_ENABLE_SIZE;
+ 		handler->priv = priv;
+ done:
+ 		for (hwirq = 1; hwirq <= nr_irqs; hwirq++)
+-- 
+2.35.1
+
