@@ -1,0 +1,10 @@
+config BR2_PACKAGE_HOST_KFLASH
+	bool "host kflash"
+	depends on BR2_RISCV_64
+	select BR2_PACKAGE_HOST_PYTHON_SERIAL
+	select BR2_PACKAGE_HOST_PYTHON_PYELFTOOLS
+	help
+	  Python-based utility tool for flashing image files to boards based on
+	  the Canaan Kendryte K210 SoC.
+
+	  https://github.com/sipeed/kflash.py.git
