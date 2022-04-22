@@ -1,0 +1,5 @@
+# md5, sha256 from https://pypi.org/pypi/kflash/json
+md5  4376b2a758f9e09004d4f21ea8bc557c  kflash-1.0.9.tar.gz
+sha256  ebcae18d4e0a8fcf923c16b1c16576e9bbb5c6ada4f5cbefb5d6d45193905b21  kflash-1.0.9.tar.gz
+# Locally computed sha256 checksums
+sha256  c48133d7a08d743c2c01c6190fc1860f7d73777afa2199ed8d0a035b754d8bf9  LICENSE

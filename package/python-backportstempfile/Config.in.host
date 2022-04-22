@@ -1,0 +1,7 @@
+config BR2_PACKAGE_HOST_PYTHON_BACKPORTSTEMPFILE
+	bool "host python-backportstempfile"
+	select BR2_PACKAGE_HOST_PYTHON_BACKPORTSWEAKREF
+	help
+	  Backport of new features in Python's tempfile module.
+
+	  https://github.com/pjdelport/backports.tempfile

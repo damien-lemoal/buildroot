@@ -1,0 +1,7 @@
+config BR2_PACKAGE_HOST_PYTHON_BACKPORTSWEAKREF
+	bool "host python-backportsweakref"
+	select BR2_PACKAGE_HOST_PYTHON_PIP
+	help
+	  Backport of new features in Python's weakref module.
+
+	  https://github.com/pjdelport/backports.weakref

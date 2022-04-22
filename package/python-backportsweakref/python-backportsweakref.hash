@@ -1,0 +1,5 @@
+# md5, sha256 from https://pypi.org/pypi/backports.weakref/json
+md5  96ae6adc9b299b1f58849b3b1f8577d7  backports.weakref-1.0.post1.tar.gz
+sha256  bc4170a29915f8b22c9e7c4939701859650f2eb84184aee80da329ac0b9825c2  backports.weakref-1.0.post1.tar.gz
+# Locally computed sha256 checksums
+sha256  efc0c7f2994f95be25f7ce63a865f870e278ff0aa4f5d52d84d4d6d2a98128bd  LICENSE
