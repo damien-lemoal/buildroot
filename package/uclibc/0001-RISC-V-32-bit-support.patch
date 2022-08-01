@@ -1,0 +1,145 @@
+From 537b2ef6350fdf7604d59bc2a50388cb98045d7f Mon Sep 17 00:00:00 2001
+From: Yimin Gu <ustcymgu@gmail.com>
+Date: Mon, 1 Aug 2022 15:22:40 +0900
+Subject: [PATCH] uclibc: RISC-V 32-bit support
+
+Added 32-bit RISC-V support. With these changes, elf2flt patch
+6055525082d1, and kernel patch 700b2f0ce371, no MMU rv32 buildroot
+system can work without any noticable problem. 
+
+There's no substantial code change except definations and config
+options. 
+
+Signed-off-by: Yimin Gu <ustcymgu@gmail.com>
+---
+ Rules.mak                                  |  2 ++
+ extra/Configs/Config.in                    |  9 +++++++++
+ extra/Configs/Config.riscv32               | 14 ++++++++++++++
+ libc/sysdeps/linux/riscv32                 |  1 +
+ libc/sysdeps/linux/riscv64/bits/wordsize.h |  3 ++-
+ libc/sysdeps/linux/riscv64/sys/asm.h       |  6 +++++-
+ 6 files changed, 33 insertions(+), 2 deletions(-)
+ create mode 100644 extra/Configs/Config.riscv32
+ create mode 120000 libc/sysdeps/linux/riscv32
+
+diff --git a/Rules.mak b/Rules.mak
+index 3fb64c728..71a14fc38 100644
+--- a/Rules.mak
++++ b/Rules.mak
+@@ -305,6 +305,7 @@ ifneq ($(TARGET_ARCH),c6x)
+ ifneq ($(TARGET_ARCH),h8300)
+ ifneq ($(TARGET_ARCH),arc)
+ ifneq ($(TARGET_ARCH),aarch64)
++ifneq ($(TARGET_ARCH),riscv32)
+ CPU_CFLAGS-y += -msoft-float
+ endif
+ endif
+@@ -316,6 +317,7 @@ endif
+ endif
+ endif
+ endif
++endif
+ 
+ ifeq ($(TARGET_ARCH),aarch64)
+ CPU_CFLAGS-y += -ftls-model=initial-exec
+diff --git a/extra/Configs/Config.in b/extra/Configs/Config.in
+index a58ceb265..5e6af800d 100644
+--- a/extra/Configs/Config.in
++++ b/extra/Configs/Config.in
+@@ -39,6 +39,7 @@ choice
+ 	default TARGET_or1k if DESIRED_TARGET_ARCH = "or1k"
+ 	default TARGET_powerpc if DESIRED_TARGET_ARCH = "powerpc"
+ 	default TARGET_riscv64 if DESIRED_TARGET_ARCH = "riscv64"
++	default TARGET_riscv32 if DESIRED_TARGET_ARCH = "riscv32"
+ 	default TARGET_sh if DESIRED_TARGET_ARCH = "sh"
+ 	default TARGET_sparc if DESIRED_TARGET_ARCH = "sparc"
+ 	default TARGET_sparc64 if DESIRED_TARGET_ARCH = "sparc64"
+@@ -125,6 +126,9 @@ config TARGET_powerpc
+ config TARGET_riscv64
+ 	bool "riscv64"
+ 
++config TARGET_riscv32
++	bool "riscv32"
++
+ config TARGET_sh
+ 	bool "superh"
+ 
+@@ -240,6 +244,10 @@ if TARGET_riscv64
+ source "extra/Configs/Config.riscv64"
+ endif
+ 
++if TARGET_riscv32
++source "extra/Configs/Config.riscv32"
++endif
++
+ if TARGET_sh
+ source "extra/Configs/Config.sh"
+ endif
+@@ -538,6 +546,7 @@ config UCLIBC_HAS_LINUXTHREADS
+ 	select UCLIBC_HAS_REALTIME
+ 	depends on !TARGET_aarch64 && \
+ 		   !TARGET_riscv64 && \
++		   !TARGET_riscv32 && \
+ 		   !TARGET_metag
+ 	help
+ 	  If you want to compile uClibc with Linuxthreads support, then answer Y.
+diff --git a/extra/Configs/Config.riscv32 b/extra/Configs/Config.riscv32
+new file mode 100644
+index 000000000..304d30f70
+--- /dev/null
++++ b/extra/Configs/Config.riscv32
+@@ -0,0 +1,14 @@
++#
++# For a description of the syntax of this configuration file,
++# see extra/config/Kconfig-language.txt
++#
++
++config TARGET_ARCH
++	string
++	default "riscv32"
++
++config FORCE_OPTIONS_FOR_ARCH
++	bool
++	default y
++	select ARCH_LITTLE_ENDIAN
++	select ARCH_HAS_MMU
+diff --git a/libc/sysdeps/linux/riscv32 b/libc/sysdeps/linux/riscv32
+new file mode 120000
+index 000000000..11677ef05
+--- /dev/null
++++ b/libc/sysdeps/linux/riscv32
+@@ -0,0 +1 @@
++riscv64
+\ No newline at end of file
+diff --git a/libc/sysdeps/linux/riscv64/bits/wordsize.h b/libc/sysdeps/linux/riscv64/bits/wordsize.h
+index 67a16ba62..1fc649aad 100644
+--- a/libc/sysdeps/linux/riscv64/bits/wordsize.h
++++ b/libc/sysdeps/linux/riscv64/bits/wordsize.h
+@@ -25,5 +25,6 @@
+ #if __riscv_xlen == 64
+ # define __WORDSIZE_TIME64_COMPAT32 1
+ #else
+-# error "rv32i-based targets are not supported"
++# define __WORDSIZE_TIME64_COMPAT32 1
++// # warning "rv32i-based targets are experimental"
+ #endif
+diff --git a/libc/sysdeps/linux/riscv64/sys/asm.h b/libc/sysdeps/linux/riscv64/sys/asm.h
+index ddb84b683..3c94c9a70 100644
+--- a/libc/sysdeps/linux/riscv64/sys/asm.h
++++ b/libc/sysdeps/linux/riscv64/sys/asm.h
+@@ -26,7 +26,11 @@
+ # define REG_S sd
+ # define REG_L ld
+ #elif __riscv_xlen == 32
+-# error "rv32i-based targets are not supported"
++# define PTRLOG 2
++# define SZREG    4
++# define REG_S sw
++# define REG_L lw
++// # warning "rv32i-based targets are experimental"
+ #else
+ # error __riscv_xlen must equal 32 or 64
+ #endif
+-- 
+2.37.1
+

@@ -71,7 +71,7 @@ choice
 
 config BR2_RISCV_32
 	bool "32-bit"
-	select BR2_ARCH_HAS_MMU_MANDATORY
+	select BR2_ARCH_HAS_MMU_OPTIONAL
 
 config BR2_RISCV_64
 	bool "64-bit"
