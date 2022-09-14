@@ -1,0 +1,30 @@
+name: build-image
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: true
+      
+    - name: Build K210-MaixBit
+      run: |
+        cp .ci/v831-k210_maixbit.config .config
+        make
+        make sdk
+      
+    - name: Pack K210-MaixBit images
+      uses: actions/upload-artifact@v2.2.2
+      with:
+        name: K210-MaixBit-images
+        path: ${{github.workspace}}/output/images
+        if-no-files-found: error
