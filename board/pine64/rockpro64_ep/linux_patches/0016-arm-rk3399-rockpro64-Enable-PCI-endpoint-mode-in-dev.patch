@@ -1,0 +1,31 @@
+From c19ac993841ce6e015629ac8d4abab165b1f8859 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Wed, 1 Feb 2023 19:27:14 +0900
+Subject: [PATCH 16/19] arm: rk3399-rockpro64: Enable PCI endpoint mode in
+ device tree
+
+Disable PCI host and enable endpoitnmode.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ arch/arm64/boot/dts/rockchip/rk3399-rockpro64.dtsi | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/rockchip/rk3399-rockpro64.dtsi b/arch/arm64/boot/dts/rockchip/rk3399-rockpro64.dtsi
+index bca2b50e0a93..70449198a0df 100644
+--- a/arch/arm64/boot/dts/rockchip/rk3399-rockpro64.dtsi
++++ b/arch/arm64/boot/dts/rockchip/rk3399-rockpro64.dtsi
+@@ -663,6 +663,10 @@ &pcie0 {
+ 	pinctrl-0 = <&pcie_perst>;
+ 	vpcie12v-supply = <&vcc12v_dcin>;
+ 	vpcie3v3-supply = <&vcc3v3_pcie>;
++	status = "disabled";
++};
++
++&pcie0_ep {
+ 	status = "okay";
+ };
+ 
+-- 
+2.41.0
+
