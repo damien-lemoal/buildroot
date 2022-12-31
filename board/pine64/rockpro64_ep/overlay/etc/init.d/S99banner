@@ -1,0 +1,48 @@
+#!/bin/sh
+#
+# Start the network....
+#
+
+function ip_addr()
+{
+	/sbin/ifconfig eth0 | grep -i mask | awk '{print $2}' | cut -f2 -d':'
+}
+
+function kmsg()
+{
+	echo "$1"
+}
+
+function banner()
+{
+kmsg ""
+kmsg  "       ____             __   ____             _____ __ __        ______"
+kmsg  "      / __ \\____  _____/ /__/ __ \\_________  / ___// // /       / ____/___"
+kmsg  "     / /_/ / __ \\/ ___/ //_/ /_/ / ___/ __ \\/ __ \\/ // /_______/ __/ / __ \\"
+kmsg  "    / _, _/ /_/ / /__/ ,< / ____/ /  / /_/ / /_/ /__  __/_____/ /___/ /_/ /"
+kmsg  "   /_/ |_|\\____/\\___/_/|_/_/   /_/   \\____/\\____/  /_/       /_____/ .___/"
+kmsg  "                                                                  /_/"
+
+kmsg "   $(dmesg -t | grep "Machine model")"
+kmsg "   CPU cores: $(nproc --all)"
+kmsg "   $(dmesg -t | grep "Memory:" | cut -f1 -d'(')"
+kmsg "   Kernel: $(uname -r) $(uname -m)"
+kmsg "   IP Address: $(ip_addr)"
+kmsg ""
+}
+
+case "$1" in
+  start)
+	sleep 3
+	banner
+        ;;
+  stop)
+        ;;
+  restart|reload)
+        ;;
+  *)
+        echo "Usage: $0 {start|stop|restart}"
+        exit 1
+esac
+
+exit $?

@@ -1,0 +1,75 @@
+From 7f6b9dd7b999ce3d4a93254cdf6c47ad386ea60f Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Mon, 20 Feb 2023 13:19:52 +0900
+Subject: [PATCH 23/29] PCI: rockchip: Do not advertize support for MSIX
+
+The rockchip EP controller includes in the EP configuration space a PCI
+capability entry for MSIX. However, the driver does not have support for
+MSIX and it is impossible to declare "0" interrupts supported using the
+MSIX capability structure. As a result, a host may be left beleiving
+that the EP function supports MSIX but this support is missing.
+
+Temporarily clear the capability ID of the MSIX capability entry to
+avoid confusing the host.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 20 ++++++++++++++++++++
+ drivers/pci/controller/pcie-rockchip.h    |  3 +++
+ 2 files changed, 23 insertions(+)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index a8ca3d58adc4..e11536681865 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -289,6 +289,23 @@ static void rockchip_pcie_ep_unmap_addr(struct pci_epc *epc, u8 fn, u8 vfn,
+ 	clear_bit(r, &ep->ob_region_map);
+ }
+ 
++static void rockchip_pcie_ep_disable_msix(struct pci_epc *epc, u8 fn, u8 vfn)
++{
++	struct rockchip_pcie_ep *ep = epc_get_drvdata(epc);
++	struct rockchip_pcie *rockchip = &ep->rockchip;
++	u32 reg;
++
++	dev_dbg(&epc->dev, "Disabling MSIX\n");
++
++	reg = rockchip_pcie_read(rockchip,
++				 ROCKCHIP_PCIE_EP_FUNC_BASE(fn) +
++				 ROCKCHIP_PCIE_EP_MSIX_CTRL_REG);
++	reg &= ~GENMASK(7, 0);
++	rockchip_pcie_write(rockchip, reg,
++			    ROCKCHIP_PCIE_EP_FUNC_BASE(fn) +
++			    ROCKCHIP_PCIE_EP_MSIX_CTRL_REG);
++}
++
+ static int rockchip_pcie_ep_set_msi(struct pci_epc *epc, u8 fn, u8 vfn,
+ 				    u8 multi_msg_cap)
+ {
+@@ -314,6 +331,9 @@ static int rockchip_pcie_ep_set_msi(struct pci_epc *epc, u8 fn, u8 vfn,
+ 	rockchip_pcie_write(rockchip, flags,
+ 			    ROCKCHIP_PCIE_EP_FUNC_BASE(fn) +
+ 			    ROCKCHIP_PCIE_EP_MSI_CTRL_REG);
++
++	rockchip_pcie_ep_disable_msix(epc, fn, vfn);
++
+ 	return 0;
+ }
+ 
+diff --git a/drivers/pci/controller/pcie-rockchip.h b/drivers/pci/controller/pcie-rockchip.h
+index 0f00ba693a94..5d801590cd0c 100644
+--- a/drivers/pci/controller/pcie-rockchip.h
++++ b/drivers/pci/controller/pcie-rockchip.h
+@@ -239,6 +239,9 @@
+ #define   ROCKCHIP_PCIE_EP_MSI_CTRL_MSI64_CAP		BIT(23)
+ #define   ROCKCHIP_PCIE_EP_MSI_CTRL_MASK_MSI_CAP	BIT(24)
+ #define ROCKCHIP_PCIE_EP_DUMMY_IRQ_ADDR				0x1
++
++#define ROCKCHIP_PCIE_EP_MSIX_CTRL_REG			0xb0
++
+ #define ROCKCHIP_PCIE_EP_FUNC_BASE(fn) \
+ 	(PCIE_EP_PF_CONFIG_REGS_BASE + (((fn) << 12) & GENMASK(19, 12)))
+ #define ROCKCHIP_PCIE_EP_VIRT_FUNC_BASE(fn) \
+-- 
+2.39.2
+

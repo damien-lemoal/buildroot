@@ -1,0 +1,49 @@
+From 40fac73df9450e97753de507b652abfd585a7719 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Sun, 5 Feb 2023 11:41:40 +0900
+Subject: [PATCH 11/29] misc: pci_endpoint_test: Simplify
+ pci_endpoint_test_msi_irq()
+
+Simplify the code of pci_endpoint_test_msi_irq() by correctly using
+booleans: remove the msix comparison to false as that variable is
+already a boolean, and directly return the result of the comparison of
+the raised interrupt number.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/misc/pci_endpoint_test.c | 12 ++++--------
+ 1 file changed, 4 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/misc/pci_endpoint_test.c b/drivers/misc/pci_endpoint_test.c
+index baab08f983a2..b05d3db85da8 100644
+--- a/drivers/misc/pci_endpoint_test.c
++++ b/drivers/misc/pci_endpoint_test.c
+@@ -312,21 +312,17 @@ static bool pci_endpoint_test_msi_irq(struct pci_endpoint_test *test,
+ 	struct pci_dev *pdev = test->pdev;
+ 
+ 	pci_endpoint_test_writel(test, PCI_ENDPOINT_TEST_IRQ_TYPE,
+-				 msix == false ? IRQ_TYPE_MSI :
+-				 IRQ_TYPE_MSIX);
++				 msix ? IRQ_TYPE_MSIX : IRQ_TYPE_MSI);
+ 	pci_endpoint_test_writel(test, PCI_ENDPOINT_TEST_IRQ_NUMBER, msi_num);
+ 	pci_endpoint_test_writel(test, PCI_ENDPOINT_TEST_COMMAND,
+-				 msix == false ? COMMAND_RAISE_MSI_IRQ :
+-				 COMMAND_RAISE_MSIX_IRQ);
++				 msix ? COMMAND_RAISE_MSIX_IRQ :
++				 COMMAND_RAISE_MSI_IRQ);
+ 	val = wait_for_completion_timeout(&test->irq_raised,
+ 					  msecs_to_jiffies(1000));
+ 	if (!val)
+ 		return false;
+ 
+-	if (pci_irq_vector(pdev, msi_num - 1) == test->last_irq)
+-		return true;
+-
+-	return false;
++	return pci_irq_vector(pdev, msi_num - 1) == test->last_irq;
+ }
+ 
+ static int pci_endpoint_test_validate_xfer_params(struct device *dev,
+-- 
+2.39.2
+

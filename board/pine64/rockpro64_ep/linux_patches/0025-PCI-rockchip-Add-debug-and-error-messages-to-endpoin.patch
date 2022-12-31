@@ -1,0 +1,108 @@
+From 82db41d441451efbb57277900acc72d2479c0d81 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Thu, 2 Feb 2023 14:54:04 +0900
+Subject: [PATCH 25/29] PCI: rockchip: Add debug and error messages to endpoint
+ driver
+
+Make the rockchip endpoint driver code more verbose under dynamic debug
+with dev_dbg() calls and add some error messages. All useful to help
+troubleshoot issues when testing a setup or an endpoint function driver.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 26 +++++++++++++++++++++--
+ 1 file changed, 24 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index 94a3180c8aa5..b226820ff3cf 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -181,8 +181,10 @@ static int rockchip_pcie_ep_set_bar(struct pci_epc *epc, u8 fn, u8 vfn,
+ 		bool is_prefetch = !!(flags & PCI_BASE_ADDRESS_MEM_PREFETCH);
+ 		bool is_64bits = sz > SZ_2G;
+ 
+-		if (is_64bits && (bar & 1))
++		if (is_64bits && (bar & 1)) {
++			dev_err(&epc->dev, "Invalid BAR %d\n", (int)bar);
+ 			return -EINVAL;
++		}
+ 
+ 		if (is_64bits && is_prefetch)
+ 			ctrl =
+@@ -259,6 +261,10 @@ static int rockchip_pcie_ep_map_addr(struct pci_epc *epc, u8 fn, u8 vfn,
+ 	struct rockchip_pcie *pcie = &ep->rockchip;
+ 	u32 r = rockchip_ob_region(addr);
+ 
++	dev_dbg(&epc->dev,
++		"Map region %u phys addr 0x%llx to pci addr 0x%llx, %zu B\n",
++		r, addr, pci_addr, size);
++
+ 	if (WARN_ON_ONCE(test_bit(r, &ep->ob_region_map)))
+ 		return -EBUSY;
+ 
+@@ -278,6 +284,8 @@ static void rockchip_pcie_ep_unmap_addr(struct pci_epc *epc, u8 fn, u8 vfn,
+ 	struct rockchip_pcie *rockchip = &ep->rockchip;
+ 	u32 r = rockchip_ob_region(phys_addr);
+ 
++	dev_dbg(&epc->dev, "Unmap region %u\n", r);
++
+ 	if (WARN_ON_ONCE(!test_bit(r, &ep->ob_region_map)))
+ 		return;
+ 	if (WARN_ON_ONCE(ep->ob_addr[r] != phys_addr))
+@@ -403,8 +411,11 @@ static void rockchip_pcie_ep_assert_intx(struct rockchip_pcie_ep *ep, u8 fn,
+ static int rockchip_pcie_ep_send_legacy_irq(struct rockchip_pcie_ep *ep, u8 fn,
+ 					    u8 intx)
+ {
++	struct rockchip_pcie *rockchip = &ep->rockchip;
+ 	u16 cmd;
+ 
++	dev_dbg(rockchip->dev, "Send legacy IRQ %d\n", (int)intx);
++
+ 	cmd = rockchip_pcie_read(&ep->rockchip,
+ 				 ROCKCHIP_PCIE_EP_FUNC_BASE(fn) +
+ 				 ROCKCHIP_PCIE_EP_CMD_STATUS);
+@@ -432,6 +443,8 @@ static int rockchip_pcie_ep_send_msi_irq(struct rockchip_pcie_ep *ep, u8 fn,
+ 	u64 pci_addr, pci_addr_mask = 0xff;
+ 	u32 r;
+ 
++	dev_dbg(rockchip->dev, "Send MSI IRQ %d\n", (int)interrupt_num);
++
+ 	/* Check MSI enable bit */
+ 	flags = rockchip_pcie_read(&ep->rockchip,
+ 				   ROCKCHIP_PCIE_EP_FUNC_BASE(fn) +
+@@ -443,8 +456,11 @@ static int rockchip_pcie_ep_send_msi_irq(struct rockchip_pcie_ep *ep, u8 fn,
+ 	mme = ((flags & ROCKCHIP_PCIE_EP_MSI_CTRL_MME_MASK) >>
+ 			ROCKCHIP_PCIE_EP_MSI_CTRL_MME_OFFSET);
+ 	msi_count = 1 << mme;
+-	if (!interrupt_num || interrupt_num > msi_count)
++	if (!interrupt_num || interrupt_num > msi_count) {
++		dev_err(rockchip->dev, "Invalid interrupt %d > %d\n",
++			(int)interrupt_num, (int)msi_count);
+ 		return -EINVAL;
++	}
+ 
+ 	/* Set MSI private data */
+ 	data_mask = msi_count - 1;
+@@ -478,6 +494,11 @@ static int rockchip_pcie_ep_send_msi_irq(struct rockchip_pcie_ep *ep, u8 fn,
+ 		ep->irq_pci_fn = fn;
+ 	}
+ 
++	dev_dbg(rockchip->dev,
++		"MSI IRQ %d: data 0x%x, pci_addr 0x%llx, offset 0x%llx\n",
++		(int)interrupt_num, data, pci_addr,
++		pci_addr & pci_addr_mask);
++
+ 	writew(data, ep->irq_cpu_addr + (pci_addr & pci_addr_mask));
+ 	return 0;
+ }
+@@ -494,6 +515,7 @@ static int rockchip_pcie_ep_raise_irq(struct pci_epc *epc, u8 fn, u8 vfn,
+ 	case PCI_EPC_IRQ_MSI:
+ 		return rockchip_pcie_ep_send_msi_irq(ep, fn, interrupt_num);
+ 	default:
++		dev_err(&epc->dev, "Invalid IRQ type\n");
+ 		return -EINVAL;
+ 	}
+ }
+-- 
+2.39.2
+

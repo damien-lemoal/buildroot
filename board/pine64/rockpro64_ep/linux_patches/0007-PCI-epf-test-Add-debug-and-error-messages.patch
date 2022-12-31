@@ -1,0 +1,218 @@
+From 16ba8a04ed26dd72c7f75d444218529ffdf0b127 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Thu, 2 Feb 2023 15:49:07 +0900
+Subject: [PATCH 07/29] PCI: epf-test: Add debug and error messages
+
+Make the pci-epf-test driver more verbose with dynamic debug messages
+using dev_dbg(). Also add some dev_err() error messages to help
+troubleshoot issues.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/endpoint/functions/pci-epf-test.c | 69 +++++++++++++++----
+ 1 file changed, 56 insertions(+), 13 deletions(-)
+
+diff --git a/drivers/pci/endpoint/functions/pci-epf-test.c b/drivers/pci/endpoint/functions/pci-epf-test.c
+index f630393e8208..9b791f4a7ffb 100644
+--- a/drivers/pci/endpoint/functions/pci-epf-test.c
++++ b/drivers/pci/endpoint/functions/pci-epf-test.c
+@@ -330,6 +330,10 @@ static int pci_epf_test_copy(struct pci_epf_test *epf_test, bool use_dma)
+ 	enum pci_barno test_reg_bar = epf_test->test_reg_bar;
+ 	volatile struct pci_epf_test_reg *reg = epf_test->reg[test_reg_bar];
+ 
++	dev_dbg(&epf->dev,
++		"COPY src addr 0x%llx, dst addr 0x%llx, %u B\n",
++		reg->src_addr, reg->dst_addr, reg->size);
++
+ 	src_addr = pci_epc_mem_alloc_addr(epc, &src_phys_addr, reg->size);
+ 	if (!src_addr) {
+ 		dev_err(dev, "Failed to allocate source address\n");
+@@ -380,6 +384,8 @@ static int pci_epf_test_copy(struct pci_epf_test *epf_test, bool use_dma)
+ 
+ 		buf = kzalloc(reg->size, GFP_KERNEL);
+ 		if (!buf) {
++			dev_err(dev, "Alloc %zu B for copy failed\n",
++				(size_t)reg->size);
+ 			ret = -ENOMEM;
+ 			goto err_map_addr;
+ 		}
+@@ -424,6 +430,9 @@ static int pci_epf_test_read(struct pci_epf_test *epf_test, bool use_dma)
+ 	enum pci_barno test_reg_bar = epf_test->test_reg_bar;
+ 	volatile struct pci_epf_test_reg *reg = epf_test->reg[test_reg_bar];
+ 
++	dev_dbg(&epf->dev, "READ src addr 0x%llx, %u B\n",
++		reg->src_addr, reg->size);
++
+ 	src_addr = pci_epc_mem_alloc_addr(epc, &phys_addr, reg->size);
+ 	if (!src_addr) {
+ 		dev_err(dev, "Failed to allocate address\n");
+@@ -442,6 +451,8 @@ static int pci_epf_test_read(struct pci_epf_test *epf_test, bool use_dma)
+ 
+ 	buf = kzalloc(reg->size, GFP_KERNEL);
+ 	if (!buf) {
++		dev_err(dev, "Alloc %zu B for read failed\n",
++			(size_t)reg->size);
+ 		ret = -ENOMEM;
+ 		goto err_map_addr;
+ 	}
+@@ -506,6 +517,9 @@ static int pci_epf_test_write(struct pci_epf_test *epf_test, bool use_dma)
+ 	enum pci_barno test_reg_bar = epf_test->test_reg_bar;
+ 	volatile struct pci_epf_test_reg *reg = epf_test->reg[test_reg_bar];
+ 
++	dev_dbg(&epf->dev, "WRITE dst addr 0x%llx, %u B\n",
++		reg->dst_addr, reg->size);
++
+ 	dst_addr = pci_epc_mem_alloc_addr(epc, &phys_addr, reg->size);
+ 	if (!dst_addr) {
+ 		dev_err(dev, "Failed to allocate address\n");
+@@ -524,6 +538,8 @@ static int pci_epf_test_write(struct pci_epf_test *epf_test, bool use_dma)
+ 
+ 	buf = kzalloc(reg->size, GFP_KERNEL);
+ 	if (!buf) {
++		dev_err(dev, "Alloc %zu B for write failed\n",
++			(size_t)reg->size);
+ 		ret = -ENOMEM;
+ 		goto err_map_addr;
+ 	}
+@@ -580,7 +596,7 @@ static int pci_epf_test_write(struct pci_epf_test *epf_test, bool use_dma)
+ 	return ret;
+ }
+ 
+-static void pci_epf_test_raise_irq(struct pci_epf_test *epf_test, u8 irq_type,
++static int pci_epf_test_raise_irq(struct pci_epf_test *epf_test, u8 irq_type,
+ 				   u16 irq)
+ {
+ 	struct pci_epf *epf = epf_test->epf;
+@@ -588,26 +604,35 @@ static void pci_epf_test_raise_irq(struct pci_epf_test *epf_test, u8 irq_type,
+ 	struct pci_epc *epc = epf->epc;
+ 	enum pci_barno test_reg_bar = epf_test->test_reg_bar;
+ 	volatile struct pci_epf_test_reg *reg = epf_test->reg[test_reg_bar];
++	int ret;
+ 
+ 	reg->status |= STATUS_IRQ_RAISED;
+ 
+ 	switch (irq_type) {
+ 	case IRQ_TYPE_LEGACY:
+-		pci_epc_raise_irq(epc, epf->func_no, epf->vfunc_no,
+-				  PCI_EPC_IRQ_LEGACY, 0);
++		dev_dbg(&epf->dev, "RAISE legacy IRQ\n");
++		ret = pci_epc_raise_irq(epc, epf->func_no, epf->vfunc_no,
++					PCI_EPC_IRQ_LEGACY, 0);
+ 		break;
+ 	case IRQ_TYPE_MSI:
+-		pci_epc_raise_irq(epc, epf->func_no, epf->vfunc_no,
+-				  PCI_EPC_IRQ_MSI, irq);
++		dev_dbg(&epf->dev, "RAISE MSI IRQ %d\n", (int)irq);
++		ret = pci_epc_raise_irq(epc, epf->func_no, epf->vfunc_no,
++					PCI_EPC_IRQ_MSI, irq);
+ 		break;
+ 	case IRQ_TYPE_MSIX:
+-		pci_epc_raise_irq(epc, epf->func_no, epf->vfunc_no,
+-				  PCI_EPC_IRQ_MSIX, irq);
++		dev_dbg(&epf->dev, "RAISE MSIX IRQ %d\n", (int)irq);
++		ret = pci_epc_raise_irq(epc, epf->func_no, epf->vfunc_no,
++					PCI_EPC_IRQ_MSIX, irq);
+ 		break;
+ 	default:
+ 		dev_err(dev, "Failed to raise IRQ, unknown type\n");
+-		break;
++		return -EINVAL;
+ 	}
++
++	if (ret)
++		dev_err(dev, "Raise IRQ failed %d\n", ret);
++
++	return ret;
+ }
+ 
+ static void pci_epf_test_cmd_handler(struct work_struct *work)
+@@ -684,8 +709,11 @@ static void pci_epf_test_cmd_handler(struct work_struct *work)
+ 
+ 	if (command & COMMAND_RAISE_MSI_IRQ) {
+ 		count = pci_epc_get_msi(epc, epf->func_no, epf->vfunc_no);
+-		if (reg->irq_number > count || count <= 0)
++		if (reg->irq_number > count || count <= 0) {
++			dev_err(dev, "Invalid MSI %d / %d\n",
++				(int)reg->irq_number, (int)count);
+ 			goto reset_handler;
++		}
+ 		reg->status = STATUS_IRQ_RAISED;
+ 		pci_epc_raise_irq(epc, epf->func_no, epf->vfunc_no,
+ 				  PCI_EPC_IRQ_MSI, reg->irq_number);
+@@ -694,14 +722,19 @@ static void pci_epf_test_cmd_handler(struct work_struct *work)
+ 
+ 	if (command & COMMAND_RAISE_MSIX_IRQ) {
+ 		count = pci_epc_get_msix(epc, epf->func_no, epf->vfunc_no);
+-		if (reg->irq_number > count || count <= 0)
++		if (reg->irq_number > count || count <= 0) {
++			dev_err(dev, "Invalid MSIX %d / %d\n",
++				(int)reg->irq_number, (int)count);
+ 			goto reset_handler;
++		}
+ 		reg->status = STATUS_IRQ_RAISED;
+ 		pci_epc_raise_irq(epc, epf->func_no, epf->vfunc_no,
+ 				  PCI_EPC_IRQ_MSIX, reg->irq_number);
+ 		goto reset_handler;
+ 	}
+ 
++	dev_err(dev, "Unknown command 0x%x\n", command);
++
+ reset_handler:
+ 	queue_delayed_work(kpcitest_workqueue, &epf_test->cmd_handler,
+ 			   msecs_to_jiffies(1));
+@@ -828,12 +861,14 @@ static int pci_epf_test_notifier(struct notifier_block *nb, unsigned long val,
+ 
+ 	switch (val) {
+ 	case CORE_INIT:
++		dev_dbg(&epf->dev, "CORE_INIT event\n");
+ 		ret = pci_epf_test_core_init(epf);
+ 		if (ret)
+ 			return NOTIFY_BAD;
+ 		break;
+ 
+ 	case LINK_UP:
++		dev_dbg(&epf->dev, "LINK_UP event\n");
+ 		queue_delayed_work(kpcitest_workqueue, &epf_test->cmd_handler,
+ 				   msecs_to_jiffies(1));
+ 		break;
+@@ -875,8 +910,12 @@ static int pci_epf_test_alloc_space(struct pci_epf *epf)
+ 	test_reg_size = test_reg_bar_size + msix_table_size + pba_size;
+ 
+ 	if (epc_features->bar_fixed_size[test_reg_bar]) {
+-		if (test_reg_size > bar_size[test_reg_bar])
++		if (test_reg_size > bar_size[test_reg_bar]) {
++			dev_err(&epf->dev, "BAR %d: %zu B > %zu B\n",
++				(int)test_reg_bar, test_reg_size,
++				(size_t)bar_size[test_reg_bar]);
+ 			return -ENOMEM;
++		}
+ 		test_reg_size = bar_size[test_reg_bar];
+ 	}
+ 
+@@ -938,8 +977,10 @@ static int pci_epf_test_bind(struct pci_epf *epf)
+ 	bool linkup_notifier = false;
+ 	bool core_init_notifier = false;
+ 
+-	if (WARN_ON_ONCE(!epc))
++	if (WARN_ON_ONCE(!epc)) {
++		dev_err(&epf->dev, "No controller\n");
+ 		return -EINVAL;
++	}
+ 
+ 	epc_features = pci_epc_get_features(epc, epf->func_no, epf->vfunc_no);
+ 	if (!epc_features) {
+@@ -950,8 +991,10 @@ static int pci_epf_test_bind(struct pci_epf *epf)
+ 	linkup_notifier = epc_features->linkup_notifier;
+ 	core_init_notifier = epc_features->core_init_notifier;
+ 	test_reg_bar = pci_epc_get_first_free_bar(epc_features);
+-	if (test_reg_bar < 0)
++	if (test_reg_bar < 0) {
++		dev_err(&epf->dev, "No free BAR\n");
+ 		return -EINVAL;
++	}
+ 	pci_epf_configure_bar(epf, epc_features);
+ 
+ 	epf_test->test_reg_bar = test_reg_bar;
+-- 
+2.39.2
+

@@ -1,0 +1,71 @@
+From ea5dba38c63486d141cab7a8e4fa35d2f3d1fa8f Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Thu, 23 Feb 2023 18:47:07 +0900
+Subject: [PATCH 24/29] PCI: rockchip: Do not advertize support for L1 PM
+ Substates
+
+Host attempting to use low power modes result in the controller hanging
+and not working at all. So do not adertize support for this capability.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 23 +++++++++++++++++++++++
+ drivers/pci/controller/pcie-rockchip.h    |  1 +
+ 2 files changed, 24 insertions(+)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index e11536681865..94a3180c8aa5 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -306,6 +306,28 @@ static void rockchip_pcie_ep_disable_msix(struct pci_epc *epc, u8 fn, u8 vfn)
+ 			    ROCKCHIP_PCIE_EP_MSIX_CTRL_REG);
+ }
+ 
++static void rockchip_pcie_ep_disable_l1pm(struct pci_epc *epc, u8 fn, u8 vfn)
++{
++	struct rockchip_pcie_ep *ep = epc_get_drvdata(epc);
++	struct rockchip_pcie *rockchip = &ep->rockchip;
++	u32 reg;
++
++	dev_dbg(&epc->dev, "Disabling L1 PM Substates\n");
++
++	/*
++	 * Clear the next capability offset of TPH Requester Extended Capability
++	 * Header as it points to the L1 PM Substates Extended Capability
++	 * Header.
++	 */
++	reg = rockchip_pcie_read(rockchip,
++				 ROCKCHIP_PCIE_EP_FUNC_BASE(fn) +
++				 ROCKCHIP_PCIE_EP_TPH_REQ_REG);
++	reg &= ~GENMASK(31, 20);
++	rockchip_pcie_write(rockchip, reg,
++			    ROCKCHIP_PCIE_EP_FUNC_BASE(fn) +
++			    ROCKCHIP_PCIE_EP_TPH_REQ_REG);
++}
++
+ static int rockchip_pcie_ep_set_msi(struct pci_epc *epc, u8 fn, u8 vfn,
+ 				    u8 multi_msg_cap)
+ {
+@@ -333,6 +355,7 @@ static int rockchip_pcie_ep_set_msi(struct pci_epc *epc, u8 fn, u8 vfn,
+ 			    ROCKCHIP_PCIE_EP_MSI_CTRL_REG);
+ 
+ 	rockchip_pcie_ep_disable_msix(epc, fn, vfn);
++	rockchip_pcie_ep_disable_l1pm(epc, fn, vfn);
+ 
+ 	return 0;
+ }
+diff --git a/drivers/pci/controller/pcie-rockchip.h b/drivers/pci/controller/pcie-rockchip.h
+index 5d801590cd0c..e5276b46baa0 100644
+--- a/drivers/pci/controller/pcie-rockchip.h
++++ b/drivers/pci/controller/pcie-rockchip.h
+@@ -241,6 +241,7 @@
+ #define ROCKCHIP_PCIE_EP_DUMMY_IRQ_ADDR				0x1
+ 
+ #define ROCKCHIP_PCIE_EP_MSIX_CTRL_REG			0xb0
++#define ROCKCHIP_PCIE_EP_TPH_REQ_REG			0x274
+ 
+ #define ROCKCHIP_PCIE_EP_FUNC_BASE(fn) \
+ 	(PCIE_EP_PF_CONFIG_REGS_BASE + (((fn) << 12) & GENMASK(19, 12)))
+-- 
+2.39.2
+

@@ -1,0 +1,107 @@
+From 2546aa1666220c5ae4d51894b6a6e7538d99c676 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Sat, 4 Feb 2023 17:55:25 +0900
+Subject: [PATCH 12/29] misc: pci_endpoint_test: Add debug and error messages
+
+Add dynamic debug messages with dev_dbg() to help troubleshoot issues
+when running the endpoint tests. The debug messages for errors detected
+in pci_endpoint_test_validate_xfer_params() are changed to error
+messages.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/misc/pci_endpoint_test.c | 26 ++++++++++++++++++++++++--
+ 1 file changed, 24 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/misc/pci_endpoint_test.c b/drivers/misc/pci_endpoint_test.c
+index b05d3db85da8..c47f6e708ea2 100644
+--- a/drivers/misc/pci_endpoint_test.c
++++ b/drivers/misc/pci_endpoint_test.c
+@@ -267,12 +267,15 @@ static bool pci_endpoint_test_bar(struct pci_endpoint_test *test,
+ 	u32 val;
+ 	int size;
+ 	struct pci_dev *pdev = test->pdev;
++	struct device *dev = &pdev->dev;
+ 
+ 	if (!test->bar[barno])
+ 		return false;
+ 
+ 	size = pci_resource_len(pdev, barno);
+ 
++	dev_dbg(dev, "Test BAR %d, %d B\n", (int)barno, size);
++
+ 	if (barno == test->test_reg_bar)
+ 		size = 0x4;
+ 
+@@ -291,6 +294,10 @@ static bool pci_endpoint_test_bar(struct pci_endpoint_test *test,
+ static bool pci_endpoint_test_legacy_irq(struct pci_endpoint_test *test)
+ {
+ 	u32 val;
++	struct pci_dev *pdev = test->pdev;
++	struct device *dev = &pdev->dev;
++
++	dev_dbg(dev, "Test legacy IRQ\n");
+ 
+ 	pci_endpoint_test_writel(test, PCI_ENDPOINT_TEST_IRQ_TYPE,
+ 				 IRQ_TYPE_LEGACY);
+@@ -310,6 +317,9 @@ static bool pci_endpoint_test_msi_irq(struct pci_endpoint_test *test,
+ {
+ 	u32 val;
+ 	struct pci_dev *pdev = test->pdev;
++	struct device *dev = &pdev->dev;
++
++	dev_dbg(dev, "Test MSI%s %d\n", msix ? "X" : "", msi_num);
+ 
+ 	pci_endpoint_test_writel(test, PCI_ENDPOINT_TEST_IRQ_TYPE,
+ 				 msix ? IRQ_TYPE_MSIX : IRQ_TYPE_MSI);
+@@ -329,12 +339,12 @@ static int pci_endpoint_test_validate_xfer_params(struct device *dev,
+ 		struct pci_endpoint_test_xfer_param *param, size_t alignment)
+ {
+ 	if (!param->size) {
+-		dev_dbg(dev, "Data size is zero\n");
++		dev_err(dev, "Data size is zero\n");
+ 		return -EINVAL;
+ 	}
+ 
+ 	if (param->size > SIZE_MAX - alignment) {
+-		dev_dbg(dev, "Maximum transfer data size exceeded\n");
++		dev_err(dev, "Maximum transfer data size exceeded\n");
+ 		return -EINVAL;
+ 	}
+ 
+@@ -444,6 +454,10 @@ static bool pci_endpoint_test_copy(struct pci_endpoint_test *test,
+ 		dst_addr = orig_dst_addr;
+ 	}
+ 
++	dev_dbg(dev,
++		"Test COPY align %zu, src phys addr 0x%llx, dst phys addr 0x%llx, %zu B\n",
++		alignment, src_phys_addr, dst_phys_addr, size);
++
+ 	pci_endpoint_test_writel(test, PCI_ENDPOINT_TEST_LOWER_DST_ADDR,
+ 				 lower_32_bits(dst_phys_addr));
+ 	pci_endpoint_test_writel(test, PCI_ENDPOINT_TEST_UPPER_DST_ADDR,
+@@ -549,6 +563,10 @@ static bool pci_endpoint_test_write(struct pci_endpoint_test *test,
+ 		addr = orig_addr;
+ 	}
+ 
++	dev_dbg(dev,
++		"Test WRITE align %zu, phys addr 0x%llx, %zu B\n",
++		alignment, phys_addr, size);
++
+ 	crc32 = crc32_le(~0, addr, size);
+ 	pci_endpoint_test_writel(test, PCI_ENDPOINT_TEST_CHECKSUM,
+ 				 crc32);
+@@ -647,6 +665,10 @@ static bool pci_endpoint_test_read(struct pci_endpoint_test *test,
+ 		addr = orig_addr;
+ 	}
+ 
++	dev_dbg(dev,
++		"Test READ align %zu, phys addr 0x%llx, %zu B\n",
++		alignment, phys_addr, size);
++
+ 	pci_endpoint_test_writel(test, PCI_ENDPOINT_TEST_LOWER_DST_ADDR,
+ 				 lower_32_bits(phys_addr));
+ 	pci_endpoint_test_writel(test, PCI_ENDPOINT_TEST_UPPER_DST_ADDR,
+-- 
+2.39.2
+
