@@ -1,0 +1,138 @@
+From 4dc58bbbeb8519651f6958c49e0a9c12c402d896 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Fri, 13 Jan 2023 20:40:53 +0900
+Subject: [PATCH 7/7] nvmet: add debug messages
+
+Temporary. For debugging PCIe endpoint nvme function.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/nvme/target/core.c        |  7 +++++++
+ drivers/nvme/target/fabrics-cmd.c | 16 ++++++++++++++++
+ 2 files changed, 23 insertions(+)
+
+diff --git a/drivers/nvme/target/core.c b/drivers/nvme/target/core.c
+index 5fdb08f80aca..3e92311217b0 100644
+--- a/drivers/nvme/target/core.c
++++ b/drivers/nvme/target/core.c
+@@ -876,6 +876,8 @@ static u16 nvmet_parse_io_cmd(struct nvmet_req *req)
+ 	struct nvme_command *cmd = req->cmd;
+ 	u16 ret;
+ 
++	pr_debug("%s\n", __FUNCTION__);
++
+ 	if (nvme_is_fabrics(cmd))
+ 		return nvmet_parse_fabrics_io_cmd(req);
+ 
+@@ -941,6 +943,7 @@ bool nvmet_req_init(struct nvmet_req *req, struct nvmet_cq *cq,
+ 
+ 	/* no support for fused commands yet */
+ 	if (unlikely(flags & (NVME_CMD_FUSE_FIRST | NVME_CMD_FUSE_SECOND))) {
++		pr_err("Fused command\n");
+ 		req->error_loc = offsetof(struct nvme_common_command, flags);
+ 		status = NVME_SC_INVALID_FIELD | NVME_SC_DNR;
+ 		goto fail;
+@@ -952,6 +955,7 @@ bool nvmet_req_init(struct nvmet_req *req, struct nvmet_cq *cq,
+ 	 * byte aligned.
+ 	 */
+ 	if (unlikely((flags & NVME_CMD_SGL_ALL) != NVME_CMD_SGL_METABUF)) {
++		pr_err("SGL METABUF\n");
+ 		req->error_loc = offsetof(struct nvme_common_command, flags);
+ 		status = NVME_SC_INVALID_FIELD | NVME_SC_DNR;
+ 		goto fail;
+@@ -997,6 +1001,7 @@ EXPORT_SYMBOL_GPL(nvmet_req_uninit);
+ bool nvmet_check_transfer_len(struct nvmet_req *req, size_t len)
+ {
+ 	if (unlikely(len != req->transfer_len)) {
++		pr_err("req tlen %zu != len %zu\n", req->transfer_len, len);
+ 		req->error_loc = offsetof(struct nvme_common_command, dptr);
+ 		nvmet_req_complete(req, NVME_SC_SGL_INVALID_DATA | NVME_SC_DNR);
+ 		return false;
+@@ -1196,6 +1201,8 @@ void nvmet_update_cc(struct nvmet_ctrl *ctrl, u32 new)
+ {
+ 	u32 old;
+ 
++	pr_debug("%s\n", __FUNCTION__);
++
+ 	mutex_lock(&ctrl->lock);
+ 	old = ctrl->cc;
+ 	ctrl->cc = new;
+diff --git a/drivers/nvme/target/fabrics-cmd.c b/drivers/nvme/target/fabrics-cmd.c
+index 43b5bd8bb6a5..73544aa7ac35 100644
+--- a/drivers/nvme/target/fabrics-cmd.c
++++ b/drivers/nvme/target/fabrics-cmd.c
+@@ -12,6 +12,8 @@ static void nvmet_execute_prop_set(struct nvmet_req *req)
+ 	u64 val = le64_to_cpu(req->cmd->prop_set.value);
+ 	u16 status = 0;
+ 
++	pr_debug("%s\n", __FUNCTION__);
++
+ 	if (!nvmet_check_transfer_len(req, 0))
+ 		return;
+ 
+@@ -41,6 +43,8 @@ static void nvmet_execute_prop_get(struct nvmet_req *req)
+ 	u16 status = 0;
+ 	u64 val = 0;
+ 
++	pr_debug("%s\n", __FUNCTION__);
++
+ 	if (!nvmet_check_transfer_len(req, 0))
+ 		return;
+ 
+@@ -86,6 +90,8 @@ u16 nvmet_parse_fabrics_admin_cmd(struct nvmet_req *req)
+ {
+ 	struct nvme_command *cmd = req->cmd;
+ 
++	pr_debug("%s\n", __FUNCTION__);
++
+ 	switch (cmd->fabrics.fctype) {
+ 	case nvme_fabrics_type_property_set:
+ 		req->execute = nvmet_execute_prop_set;
+@@ -115,6 +121,8 @@ u16 nvmet_parse_fabrics_io_cmd(struct nvmet_req *req)
+ {
+ 	struct nvme_command *cmd = req->cmd;
+ 
++	pr_debug("%s\n", __FUNCTION__);
++
+ 	switch (cmd->fabrics.fctype) {
+ #ifdef CONFIG_NVME_TARGET_AUTH
+ 	case nvme_fabrics_type_auth_send:
+@@ -143,6 +151,8 @@ static u16 nvmet_install_queue(struct nvmet_ctrl *ctrl, struct nvmet_req *req)
+ 	u16 mqes = NVME_CAP_MQES(ctrl->cap);
+ 	u16 ret;
+ 
++	pr_debug("%s\n", __FUNCTION__);
++
+ 	if (!sqsize) {
+ 		pr_warn("queue size zero!\n");
+ 		req->error_loc = offsetof(struct nvmf_connect_command, sqsize);
+@@ -212,6 +222,8 @@ static void nvmet_execute_admin_connect(struct nvmet_req *req)
+ 	u16 status = 0;
+ 	int ret;
+ 
++	pr_debug("%s\n", __FUNCTION__);
++
+ 	if (!nvmet_check_transfer_len(req, sizeof(struct nvmf_connect_data)))
+ 		return;
+ 
+@@ -290,6 +302,8 @@ static void nvmet_execute_io_connect(struct nvmet_req *req)
+ 	u16 qid = le16_to_cpu(c->qid);
+ 	u16 status = 0;
+ 
++	pr_debug("%s\n", __FUNCTION__);
++
+ 	if (!nvmet_check_transfer_len(req, sizeof(struct nvmf_connect_data)))
+ 		return;
+ 
+@@ -348,6 +362,8 @@ u16 nvmet_parse_connect_cmd(struct nvmet_req *req)
+ {
+ 	struct nvme_command *cmd = req->cmd;
+ 
++	pr_debug("%s\n", __FUNCTION__);
++
+ 	if (!nvme_is_fabrics(cmd)) {
+ 		pr_debug("invalid command 0x%x on unconnected queue.\n",
+ 			cmd->fabrics.opcode);
+-- 
+2.39.0
+

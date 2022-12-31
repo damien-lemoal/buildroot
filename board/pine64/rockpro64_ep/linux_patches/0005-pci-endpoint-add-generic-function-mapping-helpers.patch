@@ -1,0 +1,253 @@
+From 1c321a6a89c5e225ef9173943aa79e7557ff8a27 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Wed, 11 Jan 2023 18:09:22 +0900
+Subject: [PATCH 5/7] pci: endpoint: add generic function mapping helpers
+
+Blah.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/endpoint/Makefile      |   3 +-
+ drivers/pci/endpoint/pci-epf-map.c | 135 +++++++++++++++++++++++++++++
+ include/linux/pci-epf.h            |  60 +++++++++++++
+ 3 files changed, 197 insertions(+), 1 deletion(-)
+ create mode 100644 drivers/pci/endpoint/pci-epf-map.c
+
+diff --git a/drivers/pci/endpoint/Makefile b/drivers/pci/endpoint/Makefile
+index 95b2fe47e3b0..2c844c6b2cd3 100644
+--- a/drivers/pci/endpoint/Makefile
++++ b/drivers/pci/endpoint/Makefile
+@@ -5,4 +5,5 @@
+ 
+ obj-$(CONFIG_PCI_ENDPOINT_CONFIGFS)	+= pci-ep-cfs.o
+ obj-$(CONFIG_PCI_ENDPOINT)		+= pci-epc-core.o pci-epf-core.o\
+-					   pci-epc-mem.o functions/
++					   pci-epc-mem.o pci-epf-map.o \
++					   functions/
+diff --git a/drivers/pci/endpoint/pci-epf-map.c b/drivers/pci/endpoint/pci-epf-map.c
+new file mode 100644
+index 000000000000..b25b93c08174
+--- /dev/null
++++ b/drivers/pci/endpoint/pci-epf-map.c
+@@ -0,0 +1,135 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * PCI Endpoint *Function* Address Space Management
++ *
++ * Copyright (C) 2019 SiFive
++ */
++
++#include <linux/pci-epc.h>
++#include <linux/pci-epf.h>
++
++int pci_epf_map_alloc_region(struct pci_epf_map *map, struct pci_epf *epf,
++			     const struct pci_epc_features *features)
++{
++	phys_addr_t phys_base;
++	void __iomem *virt_base;
++	size_t align, size;
++
++	if (map->pci.phys_base)
++		return -EALREADY;
++
++	align = (features && features->align) ? features->align : PAGE_SIZE;
++	size = (map->size < align) ? (align << 1) : map->size;
++
++	virt_base = pci_epc_mem_alloc_addr(epf->epc, &phys_base, size);
++	if (!virt_base)
++		return -ENOMEM;
++
++	map->epf = epf;
++	map->align = align;
++	map->pci.size = size;
++	map->pci.virt_base = virt_base;
++	map->pci.phys_base = phys_base;
++	return 0;
++}
++EXPORT_SYMBOL_GPL(pci_epf_map_alloc_region);
++
++void pci_epf_map_free_region(struct pci_epf_map *map)
++{
++	if (!map->pci.phys_base)
++		return;
++
++	pci_epc_mem_free_addr(map->epf->epc, map->pci.phys_base,
++			      map->pci.virt_base, map->pci.size);
++	map->pci.phys_base = 0;
++}
++EXPORT_SYMBOL_GPL(pci_epf_map_free_region);
++
++int pci_epf_map_enable(struct pci_epf_map *map)
++{
++	struct pci_epf *epf = map->epf;
++	int ret;
++
++	if (!map->pci.phys_base)
++		return -ENOMEM;
++
++	if (map->pci.phys_addr)
++		return -EALREADY;
++
++	map->host.phys_base = map->host.phys_addr;
++	if (map->align > PAGE_SIZE)
++		map->host.phys_base &= ~(map->align-1);
++
++	map->host.phys_end = map->host.phys_base + map->pci.size - 1;
++
++	map->offset = map->host.phys_addr - map->host.phys_base;
++	if (map->offset + map->size > map->pci.size)
++		return -ERANGE;
++
++	ret = pci_epc_map_addr(epf->epc, epf->func_no, epf->vfunc_no,
++			       map->pci.phys_base, map->host.phys_base,
++			       map->pci.size);
++	if (ret)
++		return ret;
++
++	map->pci.virt_addr = map->pci.virt_base + map->offset;
++	map->pci.phys_addr = map->pci.phys_base + map->offset;
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(pci_epf_map_enable);
++
++void pci_epf_map_disable(struct pci_epf_map *map)
++{
++	if (!map->pci.phys_addr)
++		return;
++
++	pci_epc_unmap_addr(map->epf->epc, map->epf->func_no,
++			   map->epf->vfunc_no, map->pci.phys_base);
++	map->pci.phys_addr = 0;
++}
++EXPORT_SYMBOL_GPL(pci_epf_map_disable);
++
++int pci_epf_map(struct pci_epf_map *map, struct pci_epf *epf,
++		const struct pci_epc_features *features)
++{
++	int ret;
++
++	ret = pci_epf_map_alloc_region(map, epf, features);
++	if (ret) {
++		dev_err(&epf->dev, "Failed to allocate address map\n");
++		return ret;
++	}
++
++	ret = pci_epf_map_enable(map);
++	if (ret) {
++		dev_err(&epf->dev, "Failed to enable address map\n");
++		pci_epf_map_free_region(map);
++		return ret;
++	}
++
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(pci_epf_map);
++
++void pci_epf_unmap(struct pci_epf_map *map)
++{
++	pci_epf_map_disable(map);
++	pci_epf_map_free_region(map);
++	memset(map, 0, sizeof(*map));
++}
++EXPORT_SYMBOL_GPL(pci_epf_unmap);
++
++int pci_epf_map_check_fit(struct pci_epf_map *map, u64 addr, u64 end)
++{
++	return addr >= map->host.phys_base && end <= map->host.phys_end;
++}
++EXPORT_SYMBOL_GPL(pci_epf_map_check_fit);
++
++void __iomem *pci_epf_map_get(struct pci_epf_map *map, u64 addr)
++{
++	return addr - map->host.phys_base + map->pci.virt_base;
++}
++EXPORT_SYMBOL_GPL(pci_epf_map_get);
++
+diff --git a/include/linux/pci-epf.h b/include/linux/pci-epf.h
+index b89cd8515073..f92231a5b329 100644
+--- a/include/linux/pci-epf.h
++++ b/include/linux/pci-epf.h
+@@ -16,6 +16,7 @@
+ 
+ struct pci_epf;
+ enum pci_epc_interface_type;
++struct pci_epc_features;
+ 
+ enum pci_notify_event {
+ 	CORE_INIT,
+@@ -183,6 +184,25 @@ struct pci_epf_msix_tbl {
+ 	u32 vector_ctrl;
+ };
+ 
++struct pci_epf_map {
++	size_t size;
++	size_t align;
++	off_t offset;
++	struct {
++		u64 phys_addr;
++		u64 phys_base;
++		u64 phys_end;
++	} host;
++	struct {
++		size_t size;
++		void __iomem *virt_addr;
++		void __iomem *virt_base;
++		phys_addr_t phys_addr;
++		phys_addr_t phys_base;
++	} pci;
++	struct pci_epf *epf;
++};
++
+ #define to_pci_epf(epf_dev) container_of((epf_dev), struct pci_epf, dev)
+ 
+ #define pci_epf_register_driver(driver)    \
+@@ -211,4 +231,44 @@ int pci_epf_bind(struct pci_epf *epf);
+ void pci_epf_unbind(struct pci_epf *epf);
+ int pci_epf_add_vepf(struct pci_epf *epf_pf, struct pci_epf *epf_vf);
+ void pci_epf_remove_vepf(struct pci_epf *epf_pf, struct pci_epf *epf_vf);
++
++int pci_epf_map_alloc_region(struct pci_epf_map *map, struct pci_epf *epf,
++			     const struct pci_epc_features *features);
++void pci_epf_map_free_region(struct pci_epf_map *map);
++
++int pci_epf_map_enable(struct pci_epf_map *map);
++void pci_epf_map_disable(struct pci_epf_map *map);
++
++int pci_epf_map(struct pci_epf_map *map, struct pci_epf *epf,
++		const struct pci_epc_features *features);
++void pci_epf_unmap(struct pci_epf_map *map);
++
++int pci_epf_map_check_fit(struct pci_epf_map *map, u64 addr, u64 end);
++
++void __iomem *pci_epf_map_get(struct pci_epf_map *map, u64 addr);
++
++static inline void pci_epf_debug_print(const char *text)
++{
++	if (text)
++		pr_debug("%s\n", text);
++}
++
++static inline void pci_epf_debug_dump(void *data, size_t size,
++				      const char *label)
++{
++	if (data && size) {
++		unsigned char *p = (unsigned char *)data;
++
++		if (label)
++			pr_debug("%s:\n", label);
++
++		while (size >= 8) {
++			pr_debug("%02x %02x %02x %02x %02x %02x %02x %02x\n",
++				 p[0], p[1], p[2], p[3],	p[4], p[5], p[6], p[7]);
++			p += 8;
++			size -= 8;
++		}
++	}
++}
++
+ #endif /* __LINUX_PCI_EPF_H */
+-- 
+2.39.0
+
