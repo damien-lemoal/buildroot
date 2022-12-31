@@ -1,0 +1,42 @@
+From 134a49aabbbb27515e11eab8fae5fa4e68998bf7 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Thu, 6 Apr 2023 13:15:28 +0900
+Subject: [PATCH 14/25] PCI: rockchip: Improve rockchip_pcie_ep_unmap_addr()
+
+There is no need to loop over all regions to find the memory window used
+to map an address. We can use rockchip_ob_region() to determine the
+region index, together with a check that the address passed as argument
+is the address used to create the mapping. Furthermore, the
+ob_region_map bitmap should also be checked to ensure that we are not
+attempting to unmap an address that is not mapped.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 10 +++-------
+ 1 file changed, 3 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index 8892d24afcf1..884ec02dea92 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -258,14 +258,10 @@ static void rockchip_pcie_ep_unmap_addr(struct pci_epc *epc, u8 fn, u8 vfn,
+ {
+ 	struct rockchip_pcie_ep *ep = epc_get_drvdata(epc);
+ 	struct rockchip_pcie *rockchip = &ep->rockchip;
+-	u32 r;
+-
+-	for (r = 0; r < ep->max_regions; r++)
+-		if (ep->ob_addr[r] == addr)
+-			break;
++	u32 r = rockchip_ob_region(addr);
+ 
+-	if (r == ep->max_regions)
+-		return;
++	if (addr != ep->ob_addr[r] || !test_bit(r, &ep->ob_region_map))
++                return;
+ 
+ 	rockchip_pcie_clear_ep_ob_atu(rockchip, r);
+ 
+-- 
+2.41.0
+

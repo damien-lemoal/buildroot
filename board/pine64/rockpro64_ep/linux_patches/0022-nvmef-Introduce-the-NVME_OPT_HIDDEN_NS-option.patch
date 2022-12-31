@@ -1,0 +1,147 @@
+From 64f4ccdb620120bc7f7a4e44ceb4b9f5b5fd7c21 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Mon, 21 Aug 2023 19:59:50 +0900
+Subject: [PATCH 22/25] nvmef: Introduce the NVME_OPT_HIDDEN_NS option
+
+Introduce the NVME fabrics option NVME_OPT_HIDDEN_NS to allow a host
+controller to be created without any user visible or internally usable
+namespace devices. That is, if set, this option will result in the
+controller to have no character device and no block device for any of
+its namespaces.
+
+This option should be used only when the nvme controller will be
+managed using passthrough commands using the controller character
+device, either by the user or by another device driver.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/host/core.c    | 18 +++++++++++++++---
+ drivers/nvme/host/fabrics.c |  7 ++++++-
+ drivers/nvme/host/fabrics.h |  4 ++++
+ 3 files changed, 25 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/nvme/host/core.c b/drivers/nvme/host/core.c
+index 21783aa2ee8e..6fae82531e32 100644
+--- a/drivers/nvme/host/core.c
++++ b/drivers/nvme/host/core.c
+@@ -1612,11 +1612,17 @@ static void nvme_enable_aen(struct nvme_ctrl *ctrl)
+ 	queue_work(nvme_wq, &ctrl->async_event_work);
+ }
+ 
++static inline bool nvme_hidden_ns(struct nvme_ctrl *ctrl)
++{
++	return ctrl->opts && ctrl->opts->hidden_ns;
++}
++
+ static int nvme_ns_open(struct nvme_ns *ns)
+ {
+ 
+ 	/* should never be called due to GENHD_FL_HIDDEN */
+-	if (WARN_ON_ONCE(nvme_ns_head_multipath(ns->head)))
++	if (WARN_ON_ONCE(nvme_ns_head_multipath(ns->head) ||
++			 nvme_hidden_ns(ns->ctrl)))
+ 		goto fail;
+ 	if (!nvme_get_ns(ns))
+ 		goto fail;
+@@ -3586,6 +3592,9 @@ static void nvme_alloc_ns(struct nvme_ctrl *ctrl, struct nvme_ns_info *info)
+ 	disk->fops = &nvme_bdev_ops;
+ 	disk->private_data = ns;
+ 
++	if (nvme_hidden_ns(ctrl))
++		disk->flags |= GENHD_FL_HIDDEN;
++
+ 	ns->disk = disk;
+ 	ns->queue = disk->queue;
+ 
+@@ -3637,7 +3646,8 @@ static void nvme_alloc_ns(struct nvme_ctrl *ctrl, struct nvme_ns_info *info)
+ 	if (device_add_disk(ctrl->device, ns->disk, nvme_ns_id_attr_groups))
+ 		goto out_cleanup_ns_from_list;
+ 
+-	if (!nvme_ns_head_multipath(ns->head))
++	if (!nvme_ns_head_multipath(ns->head) &&
++	    !nvme_hidden_ns(ctrl))
+ 		nvme_add_ns_cdev(ns);
+ 
+ 	nvme_mpath_add_disk(ns, info->anagrpid);
+@@ -3695,7 +3705,8 @@ static void nvme_ns_remove(struct nvme_ns *ns)
+ 	/* guarantee not available in head->list */
+ 	synchronize_srcu(&ns->head->srcu);
+ 
+-	if (!nvme_ns_head_multipath(ns->head))
++	if (!nvme_ns_head_multipath(ns->head) &&
++	    !nvme_hidden_ns(ns->ctrl))
+ 		nvme_cdev_del(&ns->cdev, &ns->cdev_device);
+ 	del_gendisk(ns->disk);
+ 
+@@ -4482,6 +4493,7 @@ int nvme_init_ctrl(struct nvme_ctrl *ctrl, struct device *dev,
+ 		goto out_release_instance;
+ 
+ 	nvme_get_ctrl(ctrl);
++
+ 	cdev_init(&ctrl->cdev, &nvme_dev_fops);
+ 	ctrl->cdev.owner = ops->module;
+ 	ret = cdev_device_add(&ctrl->cdev, ctrl->device);
+diff --git a/drivers/nvme/host/fabrics.c b/drivers/nvme/host/fabrics.c
+index 2de8340aa51a..14fd757cff27 100644
+--- a/drivers/nvme/host/fabrics.c
++++ b/drivers/nvme/host/fabrics.c
+@@ -647,6 +647,7 @@ static const match_table_t opt_tokens = {
+ 	{ NVMF_OPT_DISCOVERY,		"discovery"		},
+ 	{ NVMF_OPT_DHCHAP_SECRET,	"dhchap_secret=%s"	},
+ 	{ NVMF_OPT_DHCHAP_CTRL_SECRET,	"dhchap_ctrl_secret=%s"	},
++	{ NVMF_OPT_HIDDEN_NS,		"hidden_ns"		},
+ 	{ NVMF_OPT_ERR,			NULL			}
+ };
+ 
+@@ -955,6 +956,9 @@ static int nvmf_parse_options(struct nvmf_ctrl_options *opts,
+ 			kfree(opts->dhchap_ctrl_secret);
+ 			opts->dhchap_ctrl_secret = p;
+ 			break;
++		case NVMF_OPT_HIDDEN_NS:
++			opts->hidden_ns = true;
++			break;
+ 		default:
+ 			pr_warn("unknown parameter or missing value '%s' in ctrl creation request\n",
+ 				p);
+@@ -1174,7 +1178,8 @@ EXPORT_SYMBOL_GPL(nvmf_free_options);
+ 				 NVMF_OPT_HOST_ID | NVMF_OPT_DUP_CONNECT |\
+ 				 NVMF_OPT_DISABLE_SQFLOW | NVMF_OPT_DISCOVERY |\
+ 				 NVMF_OPT_FAIL_FAST_TMO | NVMF_OPT_DHCHAP_SECRET |\
+-				 NVMF_OPT_DHCHAP_CTRL_SECRET)
++				 NVMF_OPT_DHCHAP_CTRL_SECRET | \
++				 NVMF_OPT_HIDDEN_NS)
+ 
+ struct nvme_ctrl *nvmf_create_ctrl(struct device *dev, const char *buf)
+ {
+diff --git a/drivers/nvme/host/fabrics.h b/drivers/nvme/host/fabrics.h
+index a172c8935965..9b122a0b3831 100644
+--- a/drivers/nvme/host/fabrics.h
++++ b/drivers/nvme/host/fabrics.h
+@@ -70,6 +70,7 @@ enum {
+ 	NVMF_OPT_DISCOVERY	= 1 << 22,
+ 	NVMF_OPT_DHCHAP_SECRET	= 1 << 23,
+ 	NVMF_OPT_DHCHAP_CTRL_SECRET = 1 << 24,
++	NVMF_OPT_HIDDEN_NS	= 1 << 25,
+ };
+ 
+ /**
+@@ -109,6 +110,8 @@ enum {
+  * @nr_poll_queues: number of queues for polling I/O
+  * @tos: type of service
+  * @fast_io_fail_tmo: Fast I/O fail timeout in seconds
++ * @fast_io_fail_tmo: Fast I/O fail timeout in seconds
++ * @hide_dev: Hide block devices for the namesapces of the controller
+  */
+ struct nvmf_ctrl_options {
+ 	unsigned		mask;
+@@ -131,6 +134,7 @@ struct nvmf_ctrl_options {
+ 	bool			disable_sqflow;
+ 	bool			hdr_digest;
+ 	bool			data_digest;
++	bool			hidden_ns;
+ 	unsigned int		nr_write_queues;
+ 	unsigned int		nr_poll_queues;
+ 	int			tos;
+-- 
+2.41.0
+

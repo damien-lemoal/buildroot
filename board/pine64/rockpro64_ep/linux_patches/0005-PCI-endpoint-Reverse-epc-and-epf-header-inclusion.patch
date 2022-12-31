@@ -1,0 +1,68 @@
+From 0cbe5a89e7b1ba7db73eb3133999e4c9b3c4b8f2 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Wed, 12 Apr 2023 19:25:45 +0900
+Subject: [PATCH 05/25] PCI: endpoint: Reverse epc and epf header inclusion
+
+Have linux/pci-epf.h include linux/pci-epc.h instead of the reverse.
+This matches the API stacking phylosophy of having functions implemented
+using a controller. With this change, the inclusion of linux/pci.h is
+moved from linux/pci-epf.h to linux/pci-epc.h and the forward
+declaration of enum pci_epc_interface_type removed from linux/pci-epf.h.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/pcie-rcar-ep.c | 1 +
+ include/linux/pci-epc.h               | 6 +++++-
+ include/linux/pci-epf.h               | 3 +--
+ 3 files changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/pci/controller/pcie-rcar-ep.c b/drivers/pci/controller/pcie-rcar-ep.c
+index 2172db2343d9..9f326dc3f25c 100644
+--- a/drivers/pci/controller/pcie-rcar-ep.c
++++ b/drivers/pci/controller/pcie-rcar-ep.c
+@@ -11,6 +11,7 @@
+ #include <linux/of_platform.h>
+ #include <linux/pci.h>
+ #include <linux/pci-epc.h>
++#include <linux/pci-epf.h>
+ #include <linux/platform_device.h>
+ #include <linux/pm_runtime.h>
+ 
+diff --git a/include/linux/pci-epc.h b/include/linux/pci-epc.h
+index f498f9aa2ab0..69e903ce7e60 100644
+--- a/include/linux/pci-epc.h
++++ b/include/linux/pci-epc.h
+@@ -9,9 +9,13 @@
+ #ifndef __LINUX_PCI_EPC_H
+ #define __LINUX_PCI_EPC_H
+ 
+-#include <linux/pci-epf.h>
++#include <linux/pci.h>
+ 
+ struct pci_epc;
++struct pci_epf;
++struct pci_epf_bar;
++struct pci_epf_header;
++enum pci_barno;
+ 
+ enum pci_epc_interface_type {
+ 	UNKNOWN_INTERFACE = -1,
+diff --git a/include/linux/pci-epf.h b/include/linux/pci-epf.h
+index ab1b200820ab..22af43f93840 100644
+--- a/include/linux/pci-epf.h
++++ b/include/linux/pci-epf.h
+@@ -12,10 +12,9 @@
+ #include <linux/configfs.h>
+ #include <linux/device.h>
+ #include <linux/mod_devicetable.h>
+-#include <linux/pci.h>
++#include <linux/pci-epc.h>
+ 
+ struct pci_epf;
+-enum pci_epc_interface_type;
+ 
+ enum pci_barno {
+ 	NO_BAR = -1,
+-- 
+2.41.0
+

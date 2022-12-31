@@ -1,0 +1,31 @@
+From 054e819aa3758abb0b75e78d1392e3f30e7c101f Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Wed, 19 Jul 2023 12:45:29 +0900
+Subject: [PATCH 18/25] PCI: rockchip: Add debug messages
+
+Add a debug message to show PCI address mapping information in the
+endpoint controller driver.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index 6becf222bb5a..63148bf34247 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -217,6 +217,10 @@ static void rockchip_pcie_prog_ep_ob_atu(struct rockchip_pcie *rockchip, u8 fn,
+ 		rockchip_pcie_ep_ob_atu_num_bits(rockchip, pci_addr, size);
+ 	u32 addr0, addr1, desc0;
+ 
++	dev_dbg(rockchip->dev,
++		"Map pci addr 0x%llx + %zu B to 0x%llx (%d num pass bits)\n",
++		pci_addr, size, cpu_addr, num_pass_bits);
++
+ 	addr0 = ((num_pass_bits - 1) & PCIE_CORE_OB_REGION_ADDR0_NUM_BITS) |
+ 		(lower_32_bits(pci_addr) & PCIE_CORE_OB_REGION_ADDR0_LO_ADDR);
+ 	addr1 = upper_32_bits(pci_addr);
+-- 
+2.41.0
+
