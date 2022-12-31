@@ -1,0 +1,40 @@
+From 5ee08652e9cca636756154ac8747f1bd57d40728 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Fri, 17 Mar 2023 12:52:23 +0900
+Subject: [PATCH 45/49] nvmet: Fix Identify Active Namespace ID list handling
+
+The identify command with cns set to NVME_ID_CNS_NS_ACTIVE_LIST does
+not depend on the command set. The execution of this command should
+thus not look at the csi field specified in the command. Simplify
+nvmet_execute_identify() to directly call
+nvmet_execute_identify_nslist() without the csi switch-case.
+
+Fixes: ab5d0b38c047 ("nvmet: add Command Set Identifier support")
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/nvme/target/admin-cmd.c | 9 ++-------
+ 1 file changed, 2 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/nvme/target/admin-cmd.c b/drivers/nvme/target/admin-cmd.c
+index 08aead002651..a06e94765388 100644
+--- a/drivers/nvme/target/admin-cmd.c
++++ b/drivers/nvme/target/admin-cmd.c
+@@ -678,13 +678,8 @@ static void nvmet_execute_identify(struct nvmet_req *req)
+ 		}
+ 		break;
+ 	case NVME_ID_CNS_NS_ACTIVE_LIST:
+-		switch (req->cmd->identify.csi) {
+-		case NVME_CSI_NVM:
+-			return nvmet_execute_identify_nslist(req);
+-		default:
+-			break;
+-		}
+-		break;
++		nvmet_execute_identify_nslist(req);
++		return;
+ 	case NVME_ID_CNS_NS_DESC_LIST:
+ 		nvmet_execute_identify_desclist(req);
+ 		return;
+-- 
+2.39.2
+

@@ -1,0 +1,60 @@
+From 62ad9267cba174403911ce4ea914b880cedecc79 Mon Sep 17 00:00:00 2001
+From: Rick Wertenbroek <rick.wertenbroek@gmail.com>
+Date: Tue, 4 Apr 2023 10:24:18 +0200
+Subject: [PATCH 22/49] arm64: dts: rockchip: Add dtsi entry for RK3399 PCIe
+ endpoint core
+
+Add dtsi entry for RK3399 PCIe endpoint core in the device tree.
+The status is "disabled" by default, so it will not be loaded unless
+explicitly chosen to. The RK3399 PCIe endpoit core should be enabled
+with the RK3399 PCIe root complex disabled because the RK3399 PCIe
+controller can only work one mode at the time, either in "root complex"
+mode or in "endpoint" mode.
+
+Signed-off-by: Rick Wertenbroek <rick.wertenbroek@gmail.com>
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ arch/arm64/boot/dts/rockchip/rk3399.dtsi | 27 ++++++++++++++++++++++++
+ 1 file changed, 27 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/rockchip/rk3399.dtsi b/arch/arm64/boot/dts/rockchip/rk3399.dtsi
+index 1881b4b71f91..1b1e11d4dfab 100644
+--- a/arch/arm64/boot/dts/rockchip/rk3399.dtsi
++++ b/arch/arm64/boot/dts/rockchip/rk3399.dtsi
+@@ -265,6 +265,33 @@ pcie0_intc: interrupt-controller {
+ 		};
+ 	};
+ 
++	pcie0_ep: pcie-ep@f8000000 {
++		compatible = "rockchip,rk3399-pcie-ep";
++		rockchip,max-outbound-regions = <32>;
++		clocks = <&cru ACLK_PCIE>, <&cru ACLK_PERF_PCIE>,
++			 <&cru PCLK_PCIE>, <&cru SCLK_PCIE_PM>;
++		clock-names = "aclk", "aclk-perf",
++			      "hclk", "pm";
++		max-functions = /bits/ 8 <8>;
++		num-lanes = <4>;
++		reg = <0x0 0xfd000000 0x0 0x1000000>,
++		      <0x0 0xfa000000 0x0 0x2000000>;
++		reg-names = "apb-base", "mem-base";
++		resets = <&cru SRST_PCIE_CORE>, <&cru SRST_PCIE_MGMT>,
++			 <&cru SRST_PCIE_MGMT_STICKY>, <&cru SRST_PCIE_PIPE>,
++			 <&cru SRST_PCIE_PM>, <&cru SRST_P_PCIE>,
++			 <&cru SRST_A_PCIE>;
++		reset-names = "core", "mgmt", "mgmt-sticky", "pipe",
++			      "pm", "pclk", "aclk";
++		phys = <&pcie_phy 0>, <&pcie_phy 1>,
++		       <&pcie_phy 2>, <&pcie_phy 3>;
++		phy-names = "pcie-phy-0", "pcie-phy-1",
++			    "pcie-phy-2", "pcie-phy-3";
++		pinctrl-names = "default";
++		pinctrl-0 = <&pcie_clkreqnb_cpm>;
++		status = "disabled";
++	};
++
+ 	gmac: ethernet@fe300000 {
+ 		compatible = "rockchip,rk3399-gmac";
+ 		reg = <0x0 0xfe300000 0x0 0x10000>;
+-- 
+2.39.2
+

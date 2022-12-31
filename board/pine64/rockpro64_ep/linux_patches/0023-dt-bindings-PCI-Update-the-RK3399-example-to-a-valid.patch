@@ -1,0 +1,51 @@
+From 4304e8a42d9edf529cbf4c4f53e8b71e86863954 Mon Sep 17 00:00:00 2001
+From: Rick Wertenbroek <rick.wertenbroek@gmail.com>
+Date: Tue, 4 Apr 2023 10:24:19 +0200
+Subject: [PATCH 23/49] dt-bindings: PCI: Update the RK3399 example to a valid
+ one
+
+Update the example in the documentation a valid example.
+The default max-outbound-regions is 32 but the example showed 16.
+Address for mem-base was invalid. Added pinctrl.
+
+Signed-off-by: Rick Wertenbroek <rick.wertenbroek@gmail.com>
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ .../devicetree/bindings/pci/rockchip,rk3399-pcie-ep.yaml  | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/pci/rockchip,rk3399-pcie-ep.yaml b/Documentation/devicetree/bindings/pci/rockchip,rk3399-pcie-ep.yaml
+index 88386a6d7011..0c67e96096eb 100644
+--- a/Documentation/devicetree/bindings/pci/rockchip,rk3399-pcie-ep.yaml
++++ b/Documentation/devicetree/bindings/pci/rockchip,rk3399-pcie-ep.yaml
+@@ -47,14 +47,15 @@ examples:
+ 
+         pcie-ep@f8000000 {
+             compatible = "rockchip,rk3399-pcie-ep";
+-            reg = <0x0 0xfd000000 0x0 0x1000000>, <0x0 0x80000000 0x0 0x20000>;
+-            reg-names = "apb-base", "mem-base";
++            rockchip,max-outbound-regions = <32>;
+             clocks = <&cru ACLK_PCIE>, <&cru ACLK_PERF_PCIE>,
+               <&cru PCLK_PCIE>, <&cru SCLK_PCIE_PM>;
+             clock-names = "aclk", "aclk-perf",
+                     "hclk", "pm";
+             max-functions = /bits/ 8 <8>;
+             num-lanes = <4>;
++            reg = <0x0 0xfd000000 0x0 0x1000000>, <0x0 0xfa000000 0x0 0x2000000>;
++            reg-names = "apb-base", "mem-base";
+             resets = <&cru SRST_PCIE_CORE>, <&cru SRST_PCIE_MGMT>,
+               <&cru SRST_PCIE_MGMT_STICKY>, <&cru SRST_PCIE_PIPE> ,
+               <&cru SRST_PCIE_PM>, <&cru SRST_P_PCIE>, <&cru SRST_A_PCIE>;
+@@ -62,7 +63,8 @@ examples:
+                     "pm", "pclk", "aclk";
+             phys = <&pcie_phy 0>, <&pcie_phy 1>, <&pcie_phy 2>, <&pcie_phy 3>;
+             phy-names = "pcie-phy-0", "pcie-phy-1", "pcie-phy-2", "pcie-phy-3";
+-            rockchip,max-outbound-regions = <16>;
++            pinctrl-names = "default";
++            pinctrl-0 = <&pcie_clkreqnb_cpm>;
+         };
+     };
+ ...
+-- 
+2.39.2
+

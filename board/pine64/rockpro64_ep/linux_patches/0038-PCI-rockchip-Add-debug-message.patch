@@ -1,0 +1,31 @@
+From f764ae0d4b816a80da0f17947f0c8d362baf07b5 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Thu, 6 Apr 2023 13:13:06 +0900
+Subject: [PATCH 38/49] PCI: rockchip: Add debug message
+
+Temporary: add debug message in rockchip_pcie_prog_ep_ob_atu() to print
+PCI address mapping information.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index 02ad229dda4c..469955e5e844 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -79,6 +79,10 @@ static void rockchip_pcie_prog_ep_ob_atu(struct rockchip_pcie *rockchip, u8 fn,
+ 		rockchip_pcie_ep_ob_atu_num_bits(rockchip, pci_addr, size);
+ 	u32 addr0, addr1, desc0;
+ 
++	dev_dbg(rockchip->dev,
++		"Map cpu addr 0x%llx (r=%u) to PCI addr 0x%llx, num bits %d\n",
++		cpu_addr, r, pci_addr, num_pass_bits);
++
+ 	addr0 = ((num_pass_bits - 1) & PCIE_CORE_OB_REGION_ADDR0_NUM_BITS) |
+ 		(lower_32_bits(pci_addr) & PCIE_CORE_OB_REGION_ADDR0_LO_ADDR);
+ 	addr1 = upper_32_bits(pci_addr);
+-- 
+2.39.2
+

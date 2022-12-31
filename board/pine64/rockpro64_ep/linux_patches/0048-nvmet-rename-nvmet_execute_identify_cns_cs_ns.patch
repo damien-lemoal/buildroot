@@ -1,0 +1,59 @@
+From daa8c4b406c37ebcb50925e03ae208fe2c338dfc Mon Sep 17 00:00:00 2001
+From: Christoph Hellwig <hch@lst.de>
+Date: Fri, 17 Mar 2023 13:09:55 +0900
+Subject: [PATCH 48/49] nvmet: rename nvmet_execute_identify_cns_cs_ns
+
+nvmet_execute_identify_ns_zns is a more descriptive name for the
+function handling the "I/O Command Set Specific Identify Namespace
+Data Structure for the Zoned Namespace Command Set".
+
+Signed-off-by: Christoph Hellwig <hch@lst.de>
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/nvme/target/admin-cmd.c | 2 +-
+ drivers/nvme/target/nvmet.h     | 2 +-
+ drivers/nvme/target/zns.c       | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/nvme/target/admin-cmd.c b/drivers/nvme/target/admin-cmd.c
+index c239002967b5..26487a9df68b 100644
+--- a/drivers/nvme/target/admin-cmd.c
++++ b/drivers/nvme/target/admin-cmd.c
+@@ -677,7 +677,7 @@ static void nvmet_execute_identify(struct nvmet_req *req)
+ 			break;
+ 		case NVME_CSI_ZNS:
+ 			if (IS_ENABLED(CONFIG_BLK_DEV_ZONED)) {
+-				nvmet_execute_identify_cns_cs_ns(req);
++				nvmet_execute_identify_ns_zns(req);
+ 				return;
+ 			}
+ 			break;
+diff --git a/drivers/nvme/target/nvmet.h b/drivers/nvme/target/nvmet.h
+index ac5d8b7f110f..81f04111457d 100644
+--- a/drivers/nvme/target/nvmet.h
++++ b/drivers/nvme/target/nvmet.h
+@@ -594,7 +594,7 @@ u16 blk_to_nvme_status(struct nvmet_req *req, blk_status_t blk_sts);
+ 
+ bool nvmet_bdev_zns_enable(struct nvmet_ns *ns);
+ void nvmet_execute_identify_ctrl_zns(struct nvmet_req *req);
+-void nvmet_execute_identify_cns_cs_ns(struct nvmet_req *req);
++void nvmet_execute_identify_ns_zns(struct nvmet_req *req);
+ void nvmet_bdev_execute_zone_mgmt_recv(struct nvmet_req *req);
+ void nvmet_bdev_execute_zone_mgmt_send(struct nvmet_req *req);
+ void nvmet_bdev_execute_zone_append(struct nvmet_req *req);
+diff --git a/drivers/nvme/target/zns.c b/drivers/nvme/target/zns.c
+index ae4d9d35e46a..5b5c1e481722 100644
+--- a/drivers/nvme/target/zns.c
++++ b/drivers/nvme/target/zns.c
+@@ -95,7 +95,7 @@ void nvmet_execute_identify_ctrl_zns(struct nvmet_req *req)
+ 	nvmet_req_complete(req, status);
+ }
+ 
+-void nvmet_execute_identify_cns_cs_ns(struct nvmet_req *req)
++void nvmet_execute_identify_ns_zns(struct nvmet_req *req)
+ {
+ 	struct nvme_id_ns_zns *id_zns = NULL;
+ 	u64 zsze;
+-- 
+2.39.2
+
