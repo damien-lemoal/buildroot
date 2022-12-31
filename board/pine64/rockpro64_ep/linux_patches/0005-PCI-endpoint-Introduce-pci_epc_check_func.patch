@@ -1,0 +1,196 @@
+From 65f5aa9a60b06cd51d728f1cbd8e7e78124538c8 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Thu, 13 Apr 2023 14:58:56 +0900
+Subject: [PATCH 05/23] PCI: endpoint: Introduce pci_epc_check_func()
+
+Introduce the small epc core helper function pci_epc_check_func() to
+check that an epc pointer, a physical function number and a virtual
+function number are all valid. This avoids repeating the code pattern:
+
+if (IS_ERR_OR_NULL(epc) || func_no >= epc->max_functions)
+	return err;
+
+if (vfunc_no > 0 && (!epc->max_vfs || vfunc_no > epc->max_vfs[func_no]))
+	return err;
+
+in many functions of the endpoint controller core code.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/endpoint/pci-epc-core.c | 73 +++++++++++------------------
+ 1 file changed, 28 insertions(+), 45 deletions(-)
+
+diff --git a/drivers/pci/endpoint/pci-epc-core.c b/drivers/pci/endpoint/pci-epc-core.c
+index 835d56922cbb..3e17baafb161 100644
+--- a/drivers/pci/endpoint/pci-epc-core.c
++++ b/drivers/pci/endpoint/pci-epc-core.c
+@@ -132,6 +132,17 @@ enum pci_barno pci_epc_get_next_free_bar(const struct pci_epc_features
+ }
+ EXPORT_SYMBOL_GPL(pci_epc_get_next_free_bar);
+ 
++static bool pci_epc_check_func(struct pci_epc *epc, u8 func_no, u8 vfunc_no)
++{
++	if (IS_ERR_OR_NULL(epc) || func_no >= epc->max_functions)
++		return false;
++
++	if (vfunc_no > 0 && (!epc->max_vfs || vfunc_no > epc->max_vfs[func_no]))
++		return false;
++
++	return true;
++}
++
+ /**
+  * pci_epc_get_features() - get the features supported by EPC
+  * @epc: the features supported by *this* EPC device will be returned
+@@ -149,10 +160,7 @@ const struct pci_epc_features *pci_epc_get_features(struct pci_epc *epc,
+ {
+ 	const struct pci_epc_features *epc_features;
+ 
+-	if (IS_ERR_OR_NULL(epc) || func_no >= epc->max_functions)
+-		return NULL;
+-
+-	if (vfunc_no > 0 && (!epc->max_vfs || vfunc_no > epc->max_vfs[func_no]))
++	if (!pci_epc_check_func(epc, func_no, vfunc_no))
+ 		return NULL;
+ 
+ 	if (!epc->ops->get_features)
+@@ -222,10 +230,7 @@ int pci_epc_raise_irq(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ {
+ 	int ret;
+ 
+-	if (IS_ERR_OR_NULL(epc) || func_no >= epc->max_functions)
+-		return -EINVAL;
+-
+-	if (vfunc_no > 0 && (!epc->max_vfs || vfunc_no > epc->max_vfs[func_no]))
++	if (!pci_epc_check_func(epc, func_no, vfunc_no))
+ 		return -EINVAL;
+ 
+ 	if (!epc->ops->raise_irq)
+@@ -266,10 +271,7 @@ int pci_epc_map_msi_irq(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ {
+ 	int ret;
+ 
+-	if (IS_ERR_OR_NULL(epc))
+-		return -EINVAL;
+-
+-	if (vfunc_no > 0 && (!epc->max_vfs || vfunc_no > epc->max_vfs[func_no]))
++	if (!pci_epc_check_func(epc, func_no, vfunc_no))
+ 		return -EINVAL;
+ 
+ 	if (!epc->ops->map_msi_irq)
+@@ -297,10 +299,7 @@ int pci_epc_get_msi(struct pci_epc *epc, u8 func_no, u8 vfunc_no)
+ {
+ 	int interrupt;
+ 
+-	if (IS_ERR_OR_NULL(epc) || func_no >= epc->max_functions)
+-		return 0;
+-
+-	if (vfunc_no > 0 && (!epc->max_vfs || vfunc_no > epc->max_vfs[func_no]))
++	if (!pci_epc_check_func(epc, func_no, vfunc_no))
+ 		return 0;
+ 
+ 	if (!epc->ops->get_msi)
+@@ -333,11 +332,10 @@ int pci_epc_set_msi(struct pci_epc *epc, u8 func_no, u8 vfunc_no, u8 interrupts)
+ 	int ret;
+ 	u8 encode_int;
+ 
+-	if (IS_ERR_OR_NULL(epc) || func_no >= epc->max_functions ||
+-	    interrupts < 1 || interrupts > 32)
++	if (!pci_epc_check_func(epc, func_no, vfunc_no))
+ 		return -EINVAL;
+ 
+-	if (vfunc_no > 0 && (!epc->max_vfs || vfunc_no > epc->max_vfs[func_no]))
++	if (interrupts < 1 || interrupts > 32)
+ 		return -EINVAL;
+ 
+ 	if (!epc->ops->set_msi)
+@@ -365,10 +363,7 @@ int pci_epc_get_msix(struct pci_epc *epc, u8 func_no, u8 vfunc_no)
+ {
+ 	int interrupt;
+ 
+-	if (IS_ERR_OR_NULL(epc) || func_no >= epc->max_functions)
+-		return 0;
+-
+-	if (vfunc_no > 0 && (!epc->max_vfs || vfunc_no > epc->max_vfs[func_no]))
++	if (!pci_epc_check_func(epc, func_no, vfunc_no))
+ 		return 0;
+ 
+ 	if (!epc->ops->get_msix)
+@@ -432,10 +427,7 @@ EXPORT_SYMBOL_GPL(pci_epc_set_msix);
+ void pci_epc_unmap_addr(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 			phys_addr_t phys_addr)
+ {
+-	if (IS_ERR_OR_NULL(epc) || func_no >= epc->max_functions)
+-		return;
+-
+-	if (vfunc_no > 0 && (!epc->max_vfs || vfunc_no > epc->max_vfs[func_no]))
++	if (!pci_epc_check_func(epc, func_no, vfunc_no))
+ 		return;
+ 
+ 	if (!epc->ops->unmap_addr)
+@@ -463,10 +455,7 @@ int pci_epc_map_addr(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ {
+ 	int ret;
+ 
+-	if (IS_ERR_OR_NULL(epc) || func_no >= epc->max_functions)
+-		return -EINVAL;
+-
+-	if (vfunc_no > 0 && (!epc->max_vfs || vfunc_no > epc->max_vfs[func_no]))
++	if (!pci_epc_check_func(epc, func_no, vfunc_no))
+ 		return -EINVAL;
+ 
+ 	if (!epc->ops->map_addr)
+@@ -493,12 +482,11 @@ EXPORT_SYMBOL_GPL(pci_epc_map_addr);
+ void pci_epc_clear_bar(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 		       struct pci_epf_bar *epf_bar)
+ {
+-	if (IS_ERR_OR_NULL(epc) || func_no >= epc->max_functions ||
+-	    (epf_bar->barno == BAR_5 &&
+-	     epf_bar->flags & PCI_BASE_ADDRESS_MEM_TYPE_64))
++	if (!pci_epc_check_func(epc, func_no, vfunc_no))
+ 		return;
+ 
+-	if (vfunc_no > 0 && (!epc->max_vfs || vfunc_no > epc->max_vfs[func_no]))
++	if (epf_bar->barno == BAR_5 &&
++	    epf_bar->flags & PCI_BASE_ADDRESS_MEM_TYPE_64)
+ 		return;
+ 
+ 	if (!epc->ops->clear_bar)
+@@ -525,18 +513,16 @@ int pci_epc_set_bar(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 	int ret;
+ 	int flags = epf_bar->flags;
+ 
+-	if (IS_ERR_OR_NULL(epc) || func_no >= epc->max_functions ||
+-	    (epf_bar->barno == BAR_5 &&
+-	     flags & PCI_BASE_ADDRESS_MEM_TYPE_64) ||
++	if (!pci_epc_check_func(epc, func_no, vfunc_no))
++		return -EINVAL;
++
++	if ((epf_bar->barno == BAR_5 && flags & PCI_BASE_ADDRESS_MEM_TYPE_64) ||
+ 	    (flags & PCI_BASE_ADDRESS_SPACE_IO &&
+ 	     flags & PCI_BASE_ADDRESS_IO_MASK) ||
+ 	    (upper_32_bits(epf_bar->size) &&
+ 	     !(flags & PCI_BASE_ADDRESS_MEM_TYPE_64)))
+ 		return -EINVAL;
+ 
+-	if (vfunc_no > 0 && (!epc->max_vfs || vfunc_no > epc->max_vfs[func_no]))
+-		return -EINVAL;
+-
+ 	if (!epc->ops->set_bar)
+ 		return 0;
+ 
+@@ -565,10 +551,7 @@ int pci_epc_write_header(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ {
+ 	int ret;
+ 
+-	if (IS_ERR_OR_NULL(epc) || func_no >= epc->max_functions)
+-		return -EINVAL;
+-
+-	if (vfunc_no > 0 && (!epc->max_vfs || vfunc_no > epc->max_vfs[func_no]))
++	if (!pci_epc_check_func(epc, func_no, vfunc_no))
+ 		return -EINVAL;
+ 
+ 	/* Only Virtual Function #1 has deviceID */
+-- 
+2.41.0
+
