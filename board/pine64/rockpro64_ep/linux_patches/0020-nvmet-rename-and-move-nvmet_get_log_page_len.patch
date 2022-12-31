@@ -1,0 +1,133 @@
+From ee4de20af3ea49fa901da38c73e7c640442e18f9 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Mon, 21 Aug 2023 15:08:02 +0900
+Subject: [PATCH 20/25] nvmet: rename and move nvmet_get_log_page_len()
+
+The code for nvmet_get_log_page_len() has no pedendency on nvme target
+code and only depends on struct nvme_command. Move this helper function
+out of drivers/nvme/target/admin-cmd.c and inline it as part of the
+generic definitions in include/linux/nvme.h. Apply the same modification
+to nvmet_get_log_page_offset().
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/target/admin-cmd.c | 20 +-------------------
+ drivers/nvme/target/discovery.c |  4 ++--
+ drivers/nvme/target/nvmet.h     |  3 ---
+ include/linux/nvme.h            | 19 +++++++++++++++++++
+ 4 files changed, 22 insertions(+), 24 deletions(-)
+
+diff --git a/drivers/nvme/target/admin-cmd.c b/drivers/nvme/target/admin-cmd.c
+index 39cb570f833d..1ea102bcbc3b 100644
+--- a/drivers/nvme/target/admin-cmd.c
++++ b/drivers/nvme/target/admin-cmd.c
+@@ -12,19 +12,6 @@
+ #include <asm/unaligned.h>
+ #include "nvmet.h"
+ 
+-u32 nvmet_get_log_page_len(struct nvme_command *cmd)
+-{
+-	u32 len = le16_to_cpu(cmd->get_log_page.numdu);
+-
+-	len <<= 16;
+-	len += le16_to_cpu(cmd->get_log_page.numdl);
+-	/* NUMD is a 0's based value */
+-	len += 1;
+-	len *= sizeof(u32);
+-
+-	return len;
+-}
+-
+ static u32 nvmet_feat_data_len(struct nvmet_req *req, u32 cdw10)
+ {
+ 	switch (cdw10 & 0xff) {
+@@ -35,11 +22,6 @@ static u32 nvmet_feat_data_len(struct nvmet_req *req, u32 cdw10)
+ 	}
+ }
+ 
+-u64 nvmet_get_log_page_offset(struct nvme_command *cmd)
+-{
+-	return le64_to_cpu(cmd->get_log_page.lpo);
+-}
+-
+ static void nvmet_execute_get_log_page_noop(struct nvmet_req *req)
+ {
+ 	nvmet_req_complete(req, nvmet_zero_sgl(req, 0, req->transfer_len));
+@@ -319,7 +301,7 @@ static void nvmet_execute_get_log_page_ana(struct nvmet_req *req)
+ 
+ static void nvmet_execute_get_log_page(struct nvmet_req *req)
+ {
+-	if (!nvmet_check_transfer_len(req, nvmet_get_log_page_len(req->cmd)))
++	if (!nvmet_check_transfer_len(req, nvme_get_log_page_len(req->cmd)))
+ 		return;
+ 
+ 	switch (req->cmd->get_log_page.lid) {
+diff --git a/drivers/nvme/target/discovery.c b/drivers/nvme/target/discovery.c
+index 668d257fa986..599579579adf 100644
+--- a/drivers/nvme/target/discovery.c
++++ b/drivers/nvme/target/discovery.c
+@@ -163,8 +163,8 @@ static void nvmet_execute_disc_get_log_page(struct nvmet_req *req)
+ 	const int entry_size = sizeof(struct nvmf_disc_rsp_page_entry);
+ 	struct nvmet_ctrl *ctrl = req->sq->ctrl;
+ 	struct nvmf_disc_rsp_page_hdr *hdr;
+-	u64 offset = nvmet_get_log_page_offset(req->cmd);
+-	size_t data_len = nvmet_get_log_page_len(req->cmd);
++	u64 offset = nvme_get_log_page_offset(req->cmd);
++	size_t data_len = nvme_get_log_page_len(req->cmd);
+ 	size_t alloc_len;
+ 	struct nvmet_subsys_link *p;
+ 	struct nvmet_port *r;
+diff --git a/drivers/nvme/target/nvmet.h b/drivers/nvme/target/nvmet.h
+index 8cfd60f3b564..65abdd3e48b3 100644
+--- a/drivers/nvme/target/nvmet.h
++++ b/drivers/nvme/target/nvmet.h
+@@ -520,9 +520,6 @@ u16 nvmet_copy_from_sgl(struct nvmet_req *req, off_t off, void *buf,
+ 		size_t len);
+ u16 nvmet_zero_sgl(struct nvmet_req *req, off_t off, size_t len);
+ 
+-u32 nvmet_get_log_page_len(struct nvme_command *cmd);
+-u64 nvmet_get_log_page_offset(struct nvme_command *cmd);
+-
+ extern struct list_head *nvmet_ports;
+ void nvmet_port_disc_changed(struct nvmet_port *port,
+ 		struct nvmet_subsys *subsys);
+diff --git a/include/linux/nvme.h b/include/linux/nvme.h
+index 26dd3f859d9d..0bd5604f8305 100644
+--- a/include/linux/nvme.h
++++ b/include/linux/nvme.h
+@@ -10,6 +10,7 @@
+ #include <linux/bits.h>
+ #include <linux/types.h>
+ #include <linux/uuid.h>
++#include <asm/byteorder.h>
+ 
+ /* NQN names in commands fields specified one size */
+ #define NVMF_NQN_FIELD_LEN	256
+@@ -1840,6 +1841,24 @@ static inline bool nvme_is_write(struct nvme_command *cmd)
+ 	return cmd->common.opcode & 1;
+ }
+ 
++static inline __u32 nvme_get_log_page_len(struct nvme_command *cmd)
++{
++	__u32 len = le16_to_cpu(cmd->get_log_page.numdu);
++
++	len <<= 16;
++	len += le16_to_cpu(cmd->get_log_page.numdl);
++	/* NUMD is a 0's based value */
++	len += 1;
++	len *= sizeof(__u32);
++
++	return len;
++}
++
++static inline __u64 nvme_get_log_page_offset(struct nvme_command *cmd)
++{
++	return le64_to_cpu(cmd->get_log_page.lpo);
++}
++
+ enum {
+ 	/*
+ 	 * Generic Command Status:
+-- 
+2.41.0
+

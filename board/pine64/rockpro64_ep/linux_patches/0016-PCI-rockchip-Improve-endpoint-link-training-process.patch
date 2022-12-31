@@ -1,0 +1,306 @@
+From 3201f5fdcb4a92963cd12b1d61cb4d4a04f7687f Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Mon, 24 Jul 2023 16:09:29 +0900
+Subject: [PATCH 16/25] PCI: rockchip: Improve endpoint link training process
+
+Currently, the Rockchip PCIe endpoint controller driver exhibits a
+race condition between the link initialization and the EPF driver
+starting operation (e.g. polling registers). This race manifests itself
+with random SError NMIs crashing the kernel when the EPF accesses PCI
+addresses too early. to avoid this, We need to first ensure that the
+link is fully initialized, that is, that the link training is completed
+before allowing the function driver to proceed.
+
+This patch adds support for setting up an IRQ which triggers when the
+host (RP side) asserts the link PERST signal, signaling that the
+root-complex power and reference clocks are stable. Using this IRQ,
+the link training status is probed for completion to detect a stable
+link. The link training completion is then signaled to the function
+driver using the linkup notifier.
+
+Similarly, a link down can be detected when the hosts deasserts the
+PERST signal, which results in an interrupt and notification of the
+endpoint function driver.
+
+Signed-off-by: Wilfred Mallawa <wilfred.mallawa@wdc.com>
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 147 +++++++++++++++++++++-
+ drivers/pci/controller/pcie-rockchip.c    |  12 +-
+ drivers/pci/controller/pcie-rockchip.h    |   9 ++
+ 3 files changed, 160 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index a6bf994b49bc..6becf222bb5a 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -10,11 +10,13 @@
+ 
+ #include <linux/configfs.h>
+ #include <linux/delay.h>
++#include <linux/iopoll.h>
+ #include <linux/kernel.h>
+ #include <linux/of.h>
+ #include <linux/pci-epc.h>
+ #include <linux/platform_device.h>
+ #include <linux/pci-epf.h>
++#include <linux/gpio/consumer.h>
+ #include <linux/sizes.h>
+ 
+ #include "pcie-rockchip.h"
+@@ -50,6 +52,141 @@ struct rockchip_pcie_ep {
+ 	u8			irq_pending;
+ };
+ 
++
++static void rockchip_pcie_ep_retrain_link(struct rockchip_pcie *rockchip)
++{
++	u32 status;
++
++	status = rockchip_pcie_read(rockchip, PCIE_EP_CONFIG_LCS);
++	status |= PCI_EXP_LNKCTL_RL;
++	rockchip_pcie_write(rockchip, status, PCIE_EP_CONFIG_LCS);
++}
++
++static int rockchip_pcie_ep_train_link(struct rockchip_pcie *rockchip)
++{
++	struct device *dev = rockchip->dev;
++	const char *speed_str;
++	int speed, width;
++	u32 status;
++	int err;
++
++	/* Enable Gen1 training and wait for its completion */
++	rockchip_pcie_write(rockchip, PCIE_CLIENT_LINK_TRAIN_ENABLE,
++			    PCIE_CLIENT_CONFIG);
++	rockchip_pcie_ep_retrain_link(rockchip);
++
++	err = readl_poll_timeout(rockchip->apb_base + PCIE_CORE_CTRL,
++				 status, PCIE_LINK_TRAINING_DONE(status), 50,
++				 LINK_TRAIN_TIMEOUT);
++	if (err) {
++		dev_err(dev, "Link training failed");
++		return -ENOMEDIUM;
++	}
++
++	/* Make sure that the link is up */
++	err = readl_poll_timeout(rockchip->apb_base + PCIE_CLIENT_BASIC_STATUS1,
++				 status, PCIE_LINK_UP(status), 50,
++				 LINK_TRAIN_TIMEOUT);
++	if (err) {
++		dev_err(dev, "Link is down");
++		return -ENOMEDIUM;
++	}
++
++	/* Check the current speed */
++	status = rockchip_pcie_read(rockchip, PCIE_CORE_CTRL);
++	if (!PCIE_LINK_IS_GEN2(status) && rockchip->link_gen == 2) {
++		/* Enable retrain for gen2 */
++		status = rockchip_pcie_read(rockchip, PCIE_EP_CONFIG_LCS);
++		status |= PCI_EXP_LNKCTL_RL;
++		rockchip_pcie_write(rockchip, status, PCIE_EP_CONFIG_LCS);
++
++		err = readl_poll_timeout(rockchip->apb_base + PCIE_CORE_CTRL,
++					 status, PCIE_LINK_IS_GEN2(status), 50,
++					 LINK_TRAIN_TIMEOUT);
++		if (err)
++			dev_err(dev,
++				"Link gen2 training failed, falling back to gen1\n");
++	}
++
++	if (!rockchip->link_up) {
++		status = rockchip_pcie_read(rockchip, PCIE_CORE_CTRL);
++		width = 0x1 << ((status & PCIE_CORE_PL_CONF_LANE_MASK) >>
++				PCIE_CORE_PL_CONF_LANE_SHIFT);
++		speed = status & PCIE_CORE_PL_CONF_SPEED_MASK;
++		if (!speed)
++			speed_str = "2.5GT/s";
++		else if (speed == PCIE_CORE_PL_CONF_SPEED_5G)
++			speed_str = "5GT/s";
++		else
++			speed_str = "unknown";
++
++		dev_info(dev, "Link up (speed %s, width x%d)\n",
++			 speed_str, width);
++	}
++
++	return 0;
++}
++
++static irqreturn_t rockchip_pcie_ep_perst_irq_thread(int irq, void *data)
++{
++	struct pci_epc *epc = data;
++	struct rockchip_pcie_ep *ep = epc_get_drvdata(epc);
++	struct rockchip_pcie *rockchip = &ep->rockchip;
++	struct device *dev = rockchip->dev;
++	int err;
++	u32 perst;
++
++	perst = gpiod_get_value(rockchip->ep_gpio);
++	if (!perst) {
++		dev_dbg(dev, "PERST de-asserted: training link\n");
++		err = rockchip_pcie_ep_train_link(rockchip);
++		if (!err && !rockchip->link_up) {
++			rockchip->link_up = true;
++			pci_epc_linkup(epc);
++		}
++	} else {
++		dev_dbg(dev, "PERST asserted: link down\n");
++		if (rockchip->link_up) {
++			dev_info(dev, "Link down\n");
++			pci_epc_linkdown(epc);
++			rockchip->link_up = false;
++		}
++	}
++
++	irq_set_irq_type(gpiod_to_irq(rockchip->ep_gpio),
++			 (perst ? IRQF_TRIGGER_HIGH : IRQF_TRIGGER_LOW));
++
++	return IRQ_HANDLED;
++}
++
++static int rockchip_pcie_ep_setup_irq(struct rockchip_pcie *rockchip,
++				      struct pci_epc *epc)
++{
++	struct device *dev = rockchip->dev;
++	int err;
++
++	if (!rockchip->ep_gpio)
++		return -ENODEV;
++
++	/* PCIe reset interrupt */
++	rockchip->perst_irq = gpiod_to_irq(rockchip->ep_gpio);
++	if (rockchip->perst_irq < 0) {
++		dev_err(dev, "No corresponding irq for perst GPIO");
++		return rockchip->perst_irq;
++	}
++
++	err = devm_request_threaded_irq(dev, rockchip->perst_irq, NULL,
++					rockchip_pcie_ep_perst_irq_thread,
++					IRQF_TRIGGER_HIGH | IRQF_ONESHOT,
++					"pcie-ep-perst", epc);
++	if (err) {
++		dev_err(dev, "Failed to request perst IRQ\n");
++		return err;
++	}
++
++	return 0;
++}
++
+ static void rockchip_pcie_clear_ep_ob_atu(struct rockchip_pcie *rockchip,
+ 					  u32 region)
+ {
+@@ -460,7 +597,7 @@ static int rockchip_pcie_ep_start(struct pci_epc *epc)
+ }
+ 
+ static const struct pci_epc_features rockchip_pcie_epc_features = {
+-	.linkup_notifier = false,
++	.linkup_notifier = true,
+ 	.msi_capable = true,
+ 	.msix_capable = false,
+ 	.align = ROCKCHIP_PCIE_AT_SIZE_ALIGN,
+@@ -580,6 +717,7 @@ static int rockchip_pcie_ep_probe(struct platform_device *pdev)
+ 
+ 	rockchip = &ep->rockchip;
+ 	rockchip->is_rc = false;
++	rockchip->link_up = false;
+ 	rockchip->dev = dev;
+ 
+ 	epc = devm_pci_epc_create(dev, &rockchip_pcie_epc_ops);
+@@ -637,7 +775,14 @@ static int rockchip_pcie_ep_probe(struct platform_device *pdev)
+ 	rockchip_pcie_write(rockchip, PCIE_CLIENT_CONF_ENABLE,
+ 			    PCIE_CLIENT_CONFIG);
+ 
++	err = rockchip_pcie_ep_setup_irq(rockchip, epc);
++	if (err < 0)
++		goto err_uninit_port;
++
+ 	return 0;
++
++err_uninit_port:
++	rockchip_pcie_deinit_phys(rockchip);
+ err_disable_clocks:
+ 	rockchip_pcie_disable_clocks(rockchip);
+ err_epc_mem_exit:
+diff --git a/drivers/pci/controller/pcie-rockchip.c b/drivers/pci/controller/pcie-rockchip.c
+index 0ef2e622d36e..e64f38892edf 100644
+--- a/drivers/pci/controller/pcie-rockchip.c
++++ b/drivers/pci/controller/pcie-rockchip.c
+@@ -119,13 +119,11 @@ int rockchip_pcie_parse_dt(struct rockchip_pcie *rockchip)
+ 		return PTR_ERR(rockchip->aclk_rst);
+ 	}
+ 
+-	if (rockchip->is_rc) {
+-		rockchip->ep_gpio = devm_gpiod_get_optional(dev, "ep",
+-							    GPIOD_OUT_HIGH);
+-		if (IS_ERR(rockchip->ep_gpio))
+-			return dev_err_probe(dev, PTR_ERR(rockchip->ep_gpio),
+-					     "failed to get ep GPIO\n");
+-	}
++	rockchip->ep_gpio = devm_gpiod_get_optional(dev, "ep",
++				    rockchip->is_rc ? GPIOD_OUT_HIGH : GPIOD_IN);
++	if (IS_ERR(rockchip->ep_gpio))
++		return dev_err_probe(dev, PTR_ERR(rockchip->ep_gpio),
++				     "failed to get ep GPIO\n");
+ 
+ 	rockchip->aclk_pcie = devm_clk_get(dev, "aclk");
+ 	if (IS_ERR(rockchip->aclk_pcie)) {
+diff --git a/drivers/pci/controller/pcie-rockchip.h b/drivers/pci/controller/pcie-rockchip.h
+index 30398156095f..033b492a5e85 100644
+--- a/drivers/pci/controller/pcie-rockchip.h
++++ b/drivers/pci/controller/pcie-rockchip.h
+@@ -26,6 +26,7 @@
+ #define MAX_LANE_NUM			4
+ #define MAX_REGION_LIMIT		32
+ #define MIN_EP_APERTURE			28
++#define LINK_TRAIN_TIMEOUT		(5000 * USEC_PER_MSEC)
+ 
+ #define PCIE_CLIENT_BASE		0x0
+ #define PCIE_CLIENT_CONFIG		(PCIE_CLIENT_BASE + 0x00)
+@@ -86,6 +87,8 @@
+ 
+ #define PCIE_CORE_CTRL_MGMT_BASE	0x900000
+ #define PCIE_CORE_CTRL			(PCIE_CORE_CTRL_MGMT_BASE + 0x000)
++#define   PCIE_CORE_PL_CONF_LS_MASK		0x00000001
++#define   PCIE_CORE_PL_CONF_LS_READY		0x00000001
+ #define   PCIE_CORE_PL_CONF_SPEED_5G		0x00000008
+ #define   PCIE_CORE_PL_CONF_SPEED_MASK		0x00000018
+ #define   PCIE_CORE_PL_CONF_LANE_MASK		0x00000006
+@@ -143,6 +146,7 @@
+ #define PCIE_RC_CONFIG_BASE		0xa00000
+ #define PCIE_EP_CONFIG_BASE		0xa00000
+ #define PCIE_EP_CONFIG_DID_VID		(PCIE_EP_CONFIG_BASE + 0x00)
++#define PCIE_EP_CONFIG_LCS		(PCIE_EP_CONFIG_BASE + 0xd0)
+ #define PCIE_RC_CONFIG_RID_CCR		(PCIE_RC_CONFIG_BASE + 0x08)
+ #define PCIE_RC_CONFIG_DCR		(PCIE_RC_CONFIG_BASE + 0xc4)
+ #define   PCIE_RC_CONFIG_DCR_CSPL_SHIFT		18
+@@ -154,6 +158,7 @@
+ #define PCIE_RC_CONFIG_LINK_CAP		(PCIE_RC_CONFIG_BASE + 0xcc)
+ #define   PCIE_RC_CONFIG_LINK_CAP_L0S		BIT(10)
+ #define PCIE_RC_CONFIG_LCS		(PCIE_RC_CONFIG_BASE + 0xd0)
++#define PCIE_EP_CONFIG_LCS		(PCIE_EP_CONFIG_BASE + 0xd0)
+ #define PCIE_RC_CONFIG_L1_SUBSTATE_CTRL2 (PCIE_RC_CONFIG_BASE + 0x90c)
+ #define PCIE_RC_CONFIG_THP_CAP		(PCIE_RC_CONFIG_BASE + 0x274)
+ #define   PCIE_RC_CONFIG_THP_CAP_NEXT_MASK	GENMASK(31, 20)
+@@ -191,6 +196,8 @@
+ #define ROCKCHIP_VENDOR_ID			0x1d87
+ #define PCIE_LINK_IS_L2(x) \
+ 	(((x) & PCIE_CLIENT_DEBUG_LTSSM_MASK) == PCIE_CLIENT_DEBUG_LTSSM_L2)
++#define PCIE_LINK_TRAINING_DONE(x) \
++	(((x) & PCIE_CORE_PL_CONF_LS_MASK) == PCIE_CORE_PL_CONF_LS_READY)
+ #define PCIE_LINK_UP(x) \
+ 	(((x) & PCIE_CLIENT_LINK_STATUS_MASK) == PCIE_CLIENT_LINK_STATUS_UP)
+ #define PCIE_LINK_IS_GEN2(x) \
+@@ -327,7 +334,9 @@ struct rockchip_pcie {
+ 	void    __iomem *msg_region;
+ 	phys_addr_t msg_bus_addr;
+ 	bool is_rc;
++	bool link_up;
+ 	struct resource *mem_res;
++	int perst_irq;
+ };
+ 
+ static u32 rockchip_pcie_read(struct rockchip_pcie *rockchip, u32 reg)
+-- 
+2.41.0
+

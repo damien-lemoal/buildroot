@@ -1,0 +1,176 @@
+From 61221539bff248869b3195d73675008da0cad195 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Tue, 25 Jul 2023 17:19:24 +0900
+Subject: [PATCH 01/25] PCI: rockchip: Refactor rockchip_pcie_ep_probe()
+
+Introduce the function rockchip_pcie_alloc_ep_mem() to implement all the
+memory allocation and initialization needed for the rockchip ep
+contorller. Call this function from rockchip_pcie_ep_probe() before
+enabling clocks and initializing the port to ensure that all memory
+resources are ready for use.
+
+Since rockchip_pcie_init_port() already enables link automatic training
+by setting the PCIE_CLIENT_LINK_TRAIN_ENABLE bit of the
+PCIE_CLIENT_CONFIG register, there is no need to do that again in
+rockchip_pcie_ep_probe(), so this bit setting is removed.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 109 +++++++++++-----------
+ 1 file changed, 56 insertions(+), 53 deletions(-)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index 0af0e965fb57..4a80676cb7ce 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -499,15 +499,57 @@ static const struct of_device_id rockchip_pcie_ep_of_match[] = {
+ 	{},
+ };
+ 
++static int rockchip_pcie_alloc_ep_mem(struct rockchip_pcie *rockchip,
++				      struct rockchip_pcie_ep *ep)
++{
++	struct pci_epc *epc = ep->epc;
++	struct device *dev = rockchip->dev;
++	struct pci_epc_mem_window *windows;
++	int i, err;
++
++	ep->ob_addr = devm_kcalloc(dev, ep->max_regions, sizeof(*ep->ob_addr),
++				   GFP_KERNEL);
++	if (!ep->ob_addr)
++		return -ENOMEM;
++
++	windows = devm_kcalloc(dev, ep->max_regions,
++			       sizeof(struct pci_epc_mem_window), GFP_KERNEL);
++	if (!windows)
++		return -ENOMEM;
++
++	for (i = 0; i < ep->max_regions; i++) {
++		windows[i].phys_base = rockchip->mem_res->start + (SZ_1M * i);
++		windows[i].size = SZ_1M;
++		windows[i].page_size = SZ_1M;
++	}
++	err = pci_epc_multi_mem_init(epc, windows, ep->max_regions);
++	devm_kfree(dev, windows);
++
++	if (err < 0) {
++		dev_err(dev, "failed to initialize the memory space\n");
++		return err;
++	}
++
++	ep->irq_cpu_addr = pci_epc_mem_alloc_addr(epc, &ep->irq_phys_addr,
++						  SZ_1M);
++	if (!ep->irq_cpu_addr) {
++		dev_err(dev, "failed to reserve memory space for MSI\n");
++		pci_epc_mem_exit(epc);
++		return -ENOMEM;
++	}
++
++	ep->irq_pci_addr = ROCKCHIP_PCIE_EP_DUMMY_IRQ_ADDR;
++
++	return 0;
++}
++
+ static int rockchip_pcie_ep_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
+ 	struct rockchip_pcie_ep *ep;
+ 	struct rockchip_pcie *rockchip;
+ 	struct pci_epc *epc;
+-	size_t max_regions;
+-	struct pci_epc_mem_window *windows = NULL;
+-	int err, i;
++	int err;
+ 	u32 cfg_msi, cfg_msix_cp;
+ 
+ 	ep = devm_kzalloc(dev, sizeof(*ep), GFP_KERNEL);
+@@ -531,58 +573,17 @@ static int rockchip_pcie_ep_probe(struct platform_device *pdev)
+ 	if (err)
+ 		return err;
+ 
+-	err = rockchip_pcie_enable_clocks(rockchip);
++	err = rockchip_pcie_alloc_ep_mem(rockchip, ep);
+ 	if (err)
+ 		return err;
+ 
+-	err = rockchip_pcie_init_port(rockchip);
++	err = rockchip_pcie_enable_clocks(rockchip);
+ 	if (err)
+-		goto err_disable_clocks;
+-
+-	/* Establish the link automatically */
+-	rockchip_pcie_write(rockchip, PCIE_CLIENT_LINK_TRAIN_ENABLE,
+-			    PCIE_CLIENT_CONFIG);
+-
+-	max_regions = ep->max_regions;
+-	ep->ob_addr = devm_kcalloc(dev, max_regions, sizeof(*ep->ob_addr),
+-				   GFP_KERNEL);
+-
+-	if (!ep->ob_addr) {
+-		err = -ENOMEM;
+-		goto err_uninit_port;
+-	}
+-
+-	/* Only enable function 0 by default */
+-	rockchip_pcie_write(rockchip, BIT(0), PCIE_CORE_PHY_FUNC_CFG);
+-
+-	windows = devm_kcalloc(dev, ep->max_regions,
+-			       sizeof(struct pci_epc_mem_window), GFP_KERNEL);
+-	if (!windows) {
+-		err = -ENOMEM;
+-		goto err_uninit_port;
+-	}
+-	for (i = 0; i < ep->max_regions; i++) {
+-		windows[i].phys_base = rockchip->mem_res->start + (SZ_1M * i);
+-		windows[i].size = SZ_1M;
+-		windows[i].page_size = SZ_1M;
+-	}
+-	err = pci_epc_multi_mem_init(epc, windows, ep->max_regions);
+-	devm_kfree(dev, windows);
+-
+-	if (err < 0) {
+-		dev_err(dev, "failed to initialize the memory space\n");
+-		goto err_uninit_port;
+-	}
+-
+-	ep->irq_cpu_addr = pci_epc_mem_alloc_addr(epc, &ep->irq_phys_addr,
+-						  SZ_1M);
+-	if (!ep->irq_cpu_addr) {
+-		dev_err(dev, "failed to reserve memory space for MSI\n");
+-		err = -ENOMEM;
+ 		goto err_epc_mem_exit;
+-	}
+ 
+-	ep->irq_pci_addr = ROCKCHIP_PCIE_EP_DUMMY_IRQ_ADDR;
++	err = rockchip_pcie_init_port(rockchip);
++	if (err)
++		goto err_disable_clocks;
+ 
+ 	/*
+ 	 * MSI-X is not supported but the controller still advertises the MSI-X
+@@ -607,16 +608,18 @@ static int rockchip_pcie_ep_probe(struct platform_device *pdev)
+ 	rockchip_pcie_write(rockchip, cfg_msi,
+ 			    PCIE_EP_CONFIG_BASE + ROCKCHIP_PCIE_EP_MSI_CTRL_REG);
+ 
++	/* Only enable function 0 by default */
++	rockchip_pcie_write(rockchip, BIT(0), PCIE_CORE_PHY_FUNC_CFG);
++
++	/* Enable the configuration */
+ 	rockchip_pcie_write(rockchip, PCIE_CLIENT_CONF_ENABLE,
+ 			    PCIE_CLIENT_CONFIG);
+ 
+ 	return 0;
+-err_epc_mem_exit:
+-	pci_epc_mem_exit(epc);
+-err_uninit_port:
+-	rockchip_pcie_deinit_phys(rockchip);
+ err_disable_clocks:
+ 	rockchip_pcie_disable_clocks(rockchip);
++err_epc_mem_exit:
++	pci_epc_mem_exit(epc);
+ 	return err;
+ }
+ 
+-- 
+2.41.0
+

@@ -1,0 +1,81 @@
+From 53edec358aa73f9bb4a0dcc8854b550481ae5961 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Thu, 22 Jun 2023 13:40:06 +0900
+Subject: [PATCH 12/25] PCI: rockchip: Fix address translation unit programming
+
+The rockchip PCIe endpoint controller handles PCIe transfers addresses
+by masking the lower bits of the programmed PCI address and using the
+same number of lower bits masked from the CPU address space used for the
+mapping. For a PCI mapping of <size> bytes starting from <pci_addr>,
+the number of bits masked is the number of address bits changing in the
+address range [pci_addr..pci_addr + size - 1].
+
+However, rockchip_pcie_prog_ep_ob_atu() calculates num_pass_bits only
+using the size of the mapping, resulting in an incorrect number of mask
+bits depending on the value of the PCI address to map.
+
+Fix this by introducing the helper function
+rockchip_pcie_ep_ob_atu_num_bits() to correctly calculate the number of
+mask bits to use to program the address translation unit. The number of
+mask bits iscalculated depending on both the PCI address and size of the
+mapping, and clamped between 8 and 20 using the macros
+ROCKCHIP_PCIE_AT_MIN_NUM_BITS and ROCKCHIP_PCIE_AT_MAX_NUM_BITS.
+
+Fixes: cf590b078391 ("PCI: rockchip: Add EP driver for Rockchip PCIe controller")
+Cc: stable@vger.kernel.org
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 15 +++++++++++----
+ drivers/pci/controller/pcie-rockchip.h    |  4 ++++
+ 2 files changed, 15 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index bdb9ffe48c36..2c2c6455474a 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -63,16 +63,23 @@ static void rockchip_pcie_clear_ep_ob_atu(struct rockchip_pcie *rockchip,
+ 			    ROCKCHIP_PCIE_AT_OB_REGION_DESC1(region));
+ }
+ 
++static int rockchip_pcie_ep_ob_atu_num_bits(struct rockchip_pcie *rockchip,
++					    u64 pci_addr, size_t size)
++{
++	int num_pass_bits = fls64(pci_addr ^ (pci_addr + size - 1));
++
++	return clamp(num_pass_bits, ROCKCHIP_PCIE_AT_MIN_NUM_BITS,
++		     ROCKCHIP_PCIE_AT_MAX_NUM_BITS);
++}
++
+ static void rockchip_pcie_prog_ep_ob_atu(struct rockchip_pcie *rockchip, u8 fn,
+ 					 u32 r, u64 cpu_addr, u64 pci_addr,
+ 					 size_t size)
+ {
+-	int num_pass_bits = fls64(size - 1);
++	int num_pass_bits =
++		rockchip_pcie_ep_ob_atu_num_bits(rockchip, pci_addr, size);
+ 	u32 addr0, addr1, desc0;
+ 
+-	if (num_pass_bits < 8)
+-		num_pass_bits = 8;
+-
+ 	addr0 = ((num_pass_bits - 1) & PCIE_CORE_OB_REGION_ADDR0_NUM_BITS) |
+ 		(lower_32_bits(pci_addr) & PCIE_CORE_OB_REGION_ADDR0_LO_ADDR);
+ 	addr1 = upper_32_bits(pci_addr);
+diff --git a/drivers/pci/controller/pcie-rockchip.h b/drivers/pci/controller/pcie-rockchip.h
+index 6111de35f84c..15ee949f2485 100644
+--- a/drivers/pci/controller/pcie-rockchip.h
++++ b/drivers/pci/controller/pcie-rockchip.h
+@@ -245,6 +245,10 @@
+ 	(PCIE_EP_PF_CONFIG_REGS_BASE + (((fn) << 12) & GENMASK(19, 12)))
+ #define ROCKCHIP_PCIE_EP_VIRT_FUNC_BASE(fn) \
+ 	(PCIE_EP_PF_CONFIG_REGS_BASE + 0x10000 + (((fn) << 12) & GENMASK(19, 12)))
++
++#define ROCKCHIP_PCIE_AT_MIN_NUM_BITS  8
++#define ROCKCHIP_PCIE_AT_MAX_NUM_BITS  20
++
+ #define ROCKCHIP_PCIE_AT_IB_EP_FUNC_BAR_ADDR0(fn, bar) \
+ 	(PCIE_CORE_AXI_CONF_BASE + 0x0828 + (fn) * 0x0040 + (bar) * 0x0008)
+ #define ROCKCHIP_PCIE_AT_IB_EP_FUNC_BAR_ADDR1(fn, bar) \
+-- 
+2.41.0
+

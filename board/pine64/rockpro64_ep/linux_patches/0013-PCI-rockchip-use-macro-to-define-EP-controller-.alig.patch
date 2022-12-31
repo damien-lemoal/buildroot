@@ -1,0 +1,45 @@
+From b2d0012f7c95376d3102b87dede184b208e75eaa Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Thu, 22 Jun 2023 13:41:55 +0900
+Subject: [PATCH 13/25] PCI: rockchip: use macro to define EP controller .align
+ feature
+
+Introduce the macro ROCKCHIP_PCIE_AT_SIZE_ALIGN using
+ROCKCHIP_PCIE_AT_MIN_NUM_BITS to define the .align field of the
+controller epc_features structure, avoiding using the "magic" value 8
+directly.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 2 +-
+ drivers/pci/controller/pcie-rockchip.h    | 1 +
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index 2c2c6455474a..8892d24afcf1 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -448,7 +448,7 @@ static const struct pci_epc_features rockchip_pcie_epc_features = {
+ 	.linkup_notifier = false,
+ 	.msi_capable = true,
+ 	.msix_capable = false,
+-	.align = 256,
++	.align = ROCKCHIP_PCIE_AT_SIZE_ALIGN,
+ };
+ 
+ static const struct pci_epc_features*
+diff --git a/drivers/pci/controller/pcie-rockchip.h b/drivers/pci/controller/pcie-rockchip.h
+index 15ee949f2485..02368ce9bd54 100644
+--- a/drivers/pci/controller/pcie-rockchip.h
++++ b/drivers/pci/controller/pcie-rockchip.h
+@@ -248,6 +248,7 @@
+ 
+ #define ROCKCHIP_PCIE_AT_MIN_NUM_BITS  8
+ #define ROCKCHIP_PCIE_AT_MAX_NUM_BITS  20
++#define ROCKCHIP_PCIE_AT_SIZE_ALIGN    (1UL << ROCKCHIP_PCIE_AT_MIN_NUM_BITS)
+ 
+ #define ROCKCHIP_PCIE_AT_IB_EP_FUNC_BAR_ADDR0(fn, bar) \
+ 	(PCIE_CORE_AXI_CONF_BASE + 0x0828 + (fn) * 0x0040 + (bar) * 0x0008)
+-- 
+2.41.0
+

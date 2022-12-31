@@ -1,0 +1,226 @@
+From 3562f96e66e75ad08ed4fc79ab736f2ad6430779 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Fri, 14 Apr 2023 08:54:19 +0900
+Subject: [PATCH 10/25] PCI: endpoint: Use EPF inline helpers in the test
+ driver
+
+Simplify the code of the test driver using the epf inline helpers, thus
+avoiding constant repetitions of the 3 arguments "epc, epf->func_no,
+epf->vfunc_no" for many functions in many call sites.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/endpoint/functions/pci-epf-test.c | 55 +++++++------------
+ 1 file changed, 20 insertions(+), 35 deletions(-)
+
+diff --git a/drivers/pci/endpoint/functions/pci-epf-test.c b/drivers/pci/endpoint/functions/pci-epf-test.c
+index 76ddf4c92511..b965bb8dcf83 100644
+--- a/drivers/pci/endpoint/functions/pci-epf-test.c
++++ b/drivers/pci/endpoint/functions/pci-epf-test.c
+@@ -335,8 +335,7 @@ static void pci_epf_test_copy(struct pci_epf_test *epf_test,
+ 		goto err;
+ 	}
+ 
+-	ret = pci_epc_map_addr(epc, epf->func_no, epf->vfunc_no, src_phys_addr,
+-			       reg->src_addr, reg->size);
++	ret = pci_epf_map_addr(epf, src_phys_addr, reg->src_addr, reg->size);
+ 	if (ret) {
+ 		dev_err(dev, "Failed to map source address\n");
+ 		reg->status = STATUS_SRC_ADDR_INVALID;
+@@ -351,8 +350,7 @@ static void pci_epf_test_copy(struct pci_epf_test *epf_test,
+ 		goto err_src_map_addr;
+ 	}
+ 
+-	ret = pci_epc_map_addr(epc, epf->func_no, epf->vfunc_no, dst_phys_addr,
+-			       reg->dst_addr, reg->size);
++	ret = pci_epf_map_addr(epf, dst_phys_addr, reg->dst_addr, reg->size);
+ 	if (ret) {
+ 		dev_err(dev, "Failed to map destination address\n");
+ 		reg->status = STATUS_DST_ADDR_INVALID;
+@@ -390,13 +388,13 @@ static void pci_epf_test_copy(struct pci_epf_test *epf_test,
+ 				reg->flags & FLAG_USE_DMA);
+ 
+ err_map_addr:
+-	pci_epc_unmap_addr(epc, epf->func_no, epf->vfunc_no, dst_phys_addr);
++	pci_epf_unmap_addr(epf, dst_phys_addr);
+ 
+ err_dst_addr:
+ 	pci_epc_mem_free_addr(epc, dst_phys_addr, dst_addr, reg->size);
+ 
+ err_src_map_addr:
+-	pci_epc_unmap_addr(epc, epf->func_no, epf->vfunc_no, src_phys_addr);
++	pci_epf_unmap_addr(epf, src_phys_addr);
+ 
+ err_src_addr:
+ 	pci_epc_mem_free_addr(epc, src_phys_addr, src_addr, reg->size);
+@@ -431,8 +429,7 @@ static void pci_epf_test_read(struct pci_epf_test *epf_test,
+ 		goto err;
+ 	}
+ 
+-	ret = pci_epc_map_addr(epc, epf->func_no, epf->vfunc_no, phys_addr,
+-			       reg->src_addr, reg->size);
++	ret = pci_epf_map_addr(epf, phys_addr, reg->src_addr, reg->size);
+ 	if (ret) {
+ 		dev_err(dev, "Failed to map address\n");
+ 		reg->status = STATUS_SRC_ADDR_INVALID;
+@@ -481,7 +478,7 @@ static void pci_epf_test_read(struct pci_epf_test *epf_test,
+ 	kfree(buf);
+ 
+ err_map_addr:
+-	pci_epc_unmap_addr(epc, epf->func_no, epf->vfunc_no, phys_addr);
++	pci_epf_unmap_addr(epf, phys_addr);
+ 
+ err_addr:
+ 	pci_epc_mem_free_addr(epc, phys_addr, src_addr, reg->size);
+@@ -515,8 +512,7 @@ static void pci_epf_test_write(struct pci_epf_test *epf_test,
+ 		goto err;
+ 	}
+ 
+-	ret = pci_epc_map_addr(epc, epf->func_no, epf->vfunc_no, phys_addr,
+-			       reg->dst_addr, reg->size);
++	ret = pci_epf_map_addr(epf, phys_addr, reg->dst_addr, reg->size);
+ 	if (ret) {
+ 		dev_err(dev, "Failed to map address\n");
+ 		reg->status = STATUS_DST_ADDR_INVALID;
+@@ -572,7 +568,7 @@ static void pci_epf_test_write(struct pci_epf_test *epf_test,
+ 	kfree(buf);
+ 
+ err_map_addr:
+-	pci_epc_unmap_addr(epc, epf->func_no, epf->vfunc_no, phys_addr);
++	pci_epf_unmap_addr(epf, phys_addr);
+ 
+ err_addr:
+ 	pci_epc_mem_free_addr(epc, phys_addr, dst_addr, reg->size);
+@@ -589,7 +585,6 @@ static void pci_epf_test_raise_irq(struct pci_epf_test *epf_test,
+ {
+ 	struct pci_epf *epf = epf_test->epf;
+ 	struct device *dev = &epf->dev;
+-	struct pci_epc *epc = epf->epc;
+ 	u32 status = reg->status | STATUS_IRQ_RAISED;
+ 	int count;
+ 
+@@ -601,28 +596,25 @@ static void pci_epf_test_raise_irq(struct pci_epf_test *epf_test,
+ 
+ 	switch (reg->irq_type) {
+ 	case IRQ_TYPE_LEGACY:
+-		pci_epc_raise_irq(epc, epf->func_no, epf->vfunc_no,
+-				  PCI_IRQ_LEGACY, 0);
++		pci_epf_raise_irq(epf, PCI_IRQ_LEGACY, 0);
+ 		break;
+ 	case IRQ_TYPE_MSI:
+-		count = pci_epc_get_msi(epc, epf->func_no, epf->vfunc_no);
++		count = pci_epf_get_msi(epf);
+ 		if (reg->irq_number > count || count <= 0) {
+ 			dev_err(dev, "Invalid MSI IRQ number %d / %d\n",
+ 				reg->irq_number, count);
+ 			return;
+ 		}
+-		pci_epc_raise_irq(epc, epf->func_no, epf->vfunc_no,
+-				  PCI_IRQ_MSI, reg->irq_number);
++		pci_epf_raise_irq(epf, PCI_IRQ_MSI, reg->irq_number);
+ 		break;
+ 	case IRQ_TYPE_MSIX:
+-		count = pci_epc_get_msix(epc, epf->func_no, epf->vfunc_no);
++		count = pci_epf_get_msix(epf);
+ 		if (reg->irq_number > count || count <= 0) {
+ 			dev_err(dev, "Invalid MSIX IRQ number %d / %d\n",
+ 				reg->irq_number, count);
+ 			return;
+ 		}
+-		pci_epc_raise_irq(epc, epf->func_no, epf->vfunc_no,
+-				  PCI_IRQ_MSIX, reg->irq_number);
++		pci_epf_raise_irq(epf, PCI_IRQ_MSIX, reg->irq_number);
+ 		break;
+ 	default:
+ 		dev_err(dev, "Failed to raise IRQ, unknown type\n");
+@@ -689,7 +681,6 @@ static void pci_epf_test_cmd_handler(struct work_struct *work)
+ static void pci_epf_test_unbind(struct pci_epf *epf)
+ {
+ 	struct pci_epf_test *epf_test = epf_get_drvdata(epf);
+-	struct pci_epc *epc = epf->epc;
+ 	struct pci_epf_bar *epf_bar;
+ 	int bar;
+ 
+@@ -699,8 +690,7 @@ static void pci_epf_test_unbind(struct pci_epf *epf)
+ 		epf_bar = &epf->bar[bar];
+ 
+ 		if (epf_test->reg[bar]) {
+-			pci_epc_clear_bar(epc, epf->func_no, epf->vfunc_no,
+-					  epf_bar);
++			pci_epf_clear_bar(epf, epf_bar);
+ 			pci_epf_free_space(epf, epf_test->reg[bar], bar,
+ 					   PRIMARY_INTERFACE);
+ 		}
+@@ -712,7 +702,6 @@ static int pci_epf_test_set_bar(struct pci_epf *epf)
+ 	int bar, add;
+ 	int ret;
+ 	struct pci_epf_bar *epf_bar;
+-	struct pci_epc *epc = epf->epc;
+ 	struct device *dev = &epf->dev;
+ 	struct pci_epf_test *epf_test = epf_get_drvdata(epf);
+ 	enum pci_barno test_reg_bar = epf_test->test_reg_bar;
+@@ -732,8 +721,7 @@ static int pci_epf_test_set_bar(struct pci_epf *epf)
+ 		if (!!(epc_features->reserved_bar & (1 << bar)))
+ 			continue;
+ 
+-		ret = pci_epc_set_bar(epc, epf->func_no, epf->vfunc_no,
+-				      epf_bar);
++		ret = pci_epf_set_bar(epf, epf_bar);
+ 		if (ret) {
+ 			pci_epf_free_space(epf, epf_test->reg[bar], bar,
+ 					   PRIMARY_INTERFACE);
+@@ -751,20 +739,19 @@ static int pci_epf_test_core_init(struct pci_epf *epf)
+ 	struct pci_epf_test *epf_test = epf_get_drvdata(epf);
+ 	struct pci_epf_header *header = epf->header;
+ 	const struct pci_epc_features *epc_features;
+-	struct pci_epc *epc = epf->epc;
+ 	struct device *dev = &epf->dev;
+ 	bool msix_capable = false;
+ 	bool msi_capable = true;
+ 	int ret;
+ 
+-	epc_features = pci_epc_get_features(epc, epf->func_no, epf->vfunc_no);
++	epc_features = pci_epf_get_features(epf);
+ 	if (epc_features) {
+ 		msix_capable = epc_features->msix_capable;
+ 		msi_capable = epc_features->msi_capable;
+ 	}
+ 
+ 	if (epf->vfunc_no <= 1) {
+-		ret = pci_epc_write_header(epc, epf->func_no, epf->vfunc_no, header);
++		ret = pci_epf_write_header(epf, header);
+ 		if (ret) {
+ 			dev_err(dev, "Configuration header write failed\n");
+ 			return ret;
+@@ -776,8 +763,7 @@ static int pci_epf_test_core_init(struct pci_epf *epf)
+ 		return ret;
+ 
+ 	if (msi_capable) {
+-		ret = pci_epc_set_msi(epc, epf->func_no, epf->vfunc_no,
+-				      epf->msi_interrupts);
++		ret = pci_epf_set_msi(epf, epf->msi_interrupts);
+ 		if (ret) {
+ 			dev_err(dev, "MSI configuration failed\n");
+ 			return ret;
+@@ -785,8 +771,7 @@ static int pci_epf_test_core_init(struct pci_epf *epf)
+ 	}
+ 
+ 	if (msix_capable) {
+-		ret = pci_epc_set_msix(epc, epf->func_no, epf->vfunc_no,
+-				       epf->msix_interrupts,
++		ret = pci_epf_set_msix(epf, epf->msix_interrupts,
+ 				       epf_test->test_reg_bar,
+ 				       epf_test->msix_table_offset);
+ 		if (ret) {
+@@ -907,7 +892,7 @@ static int pci_epf_test_bind(struct pci_epf *epf)
+ 	if (WARN_ON_ONCE(!epc))
+ 		return -EINVAL;
+ 
+-	epc_features = pci_epc_get_features(epc, epf->func_no, epf->vfunc_no);
++	epc_features = pci_epf_get_features(epf);
+ 	if (!epc_features) {
+ 		dev_err(&epf->dev, "epc_features not implemented\n");
+ 		return -EOPNOTSUPP;
+-- 
+2.41.0
+

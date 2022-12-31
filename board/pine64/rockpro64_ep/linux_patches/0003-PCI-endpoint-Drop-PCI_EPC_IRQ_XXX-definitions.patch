@@ -1,0 +1,534 @@
+From 0b0825c884e5a9101f9becb45d919975dfb7a922 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Wed, 12 Apr 2023 19:50:47 +0900
+Subject: [PATCH 03/25] PCI: endpoint: Drop PCI_EPC_IRQ_XXX definitions
+
+linux/pci.h defines the IRQ flags PCI_IRQ_LEGACY, PCI_IRQ_MSI and
+PCI_IRQ_MSIX. Let's use these flags directly instead of the endpoint
+definitions provided by enum pci_epc_irq_type.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/cadence/pcie-cadence-ep.c  |  9 ++++-----
+ drivers/pci/controller/dwc/pci-dra7xx.c           |  6 +++---
+ drivers/pci/controller/dwc/pci-imx6.c             |  9 ++++-----
+ drivers/pci/controller/dwc/pci-keystone.c         |  9 ++++-----
+ drivers/pci/controller/dwc/pci-layerscape-ep.c    |  8 ++++----
+ drivers/pci/controller/dwc/pcie-artpec6.c         |  6 +++---
+ drivers/pci/controller/dwc/pcie-designware-ep.c   |  2 +-
+ drivers/pci/controller/dwc/pcie-designware-plat.c |  9 ++++-----
+ drivers/pci/controller/dwc/pcie-designware.h      |  2 +-
+ drivers/pci/controller/dwc/pcie-keembay.c         |  9 ++++-----
+ drivers/pci/controller/dwc/pcie-qcom-ep.c         |  6 +++---
+ drivers/pci/controller/dwc/pcie-tegra194.c        |  9 ++++-----
+ drivers/pci/controller/dwc/pcie-uniphier-ep.c     |  7 +++----
+ drivers/pci/controller/pcie-rcar-ep.c             |  7 +++----
+ drivers/pci/controller/pcie-rockchip-ep.c         |  7 +++----
+ drivers/pci/endpoint/functions/pci-epf-mhi.c      |  2 +-
+ drivers/pci/endpoint/functions/pci-epf-ntb.c      |  4 ++--
+ drivers/pci/endpoint/functions/pci-epf-test.c     |  6 +++---
+ drivers/pci/endpoint/functions/pci-epf-vntb.c     |  7 ++-----
+ drivers/pci/endpoint/pci-epc-core.c               |  2 +-
+ include/linux/pci-epc.h                           | 11 ++---------
+ 21 files changed, 59 insertions(+), 78 deletions(-)
+
+diff --git a/drivers/pci/controller/cadence/pcie-cadence-ep.c b/drivers/pci/controller/cadence/pcie-cadence-ep.c
+index b8b655d4047e..250ad1330ff3 100644
+--- a/drivers/pci/controller/cadence/pcie-cadence-ep.c
++++ b/drivers/pci/controller/cadence/pcie-cadence-ep.c
+@@ -531,25 +531,24 @@ static int cdns_pcie_ep_send_msix_irq(struct cdns_pcie_ep *ep, u8 fn, u8 vfn,
+ }
+ 
+ static int cdns_pcie_ep_raise_irq(struct pci_epc *epc, u8 fn, u8 vfn,
+-				  enum pci_epc_irq_type type,
+-				  u16 interrupt_num)
++				  unsigned int type, u16 interrupt_num)
+ {
+ 	struct cdns_pcie_ep *ep = epc_get_drvdata(epc);
+ 	struct cdns_pcie *pcie = &ep->pcie;
+ 	struct device *dev = pcie->dev;
+ 
+ 	switch (type) {
+-	case PCI_EPC_IRQ_LEGACY:
++	case PCI_IRQ_LEGACY:
+ 		if (vfn > 0) {
+ 			dev_err(dev, "Cannot raise legacy interrupts for VF\n");
+ 			return -EINVAL;
+ 		}
+ 		return cdns_pcie_ep_send_legacy_irq(ep, fn, vfn, 0);
+ 
+-	case PCI_EPC_IRQ_MSI:
++	case PCI_IRQ_MSI:
+ 		return cdns_pcie_ep_send_msi_irq(ep, fn, vfn, interrupt_num);
+ 
+-	case PCI_EPC_IRQ_MSIX:
++	case PCI_IRQ_MSIX:
+ 		return cdns_pcie_ep_send_msix_irq(ep, fn, vfn, interrupt_num);
+ 
+ 	default:
+diff --git a/drivers/pci/controller/dwc/pci-dra7xx.c b/drivers/pci/controller/dwc/pci-dra7xx.c
+index b445ffe95e3f..eb4cf0dfcd46 100644
+--- a/drivers/pci/controller/dwc/pci-dra7xx.c
++++ b/drivers/pci/controller/dwc/pci-dra7xx.c
+@@ -404,16 +404,16 @@ static void dra7xx_pcie_raise_msi_irq(struct dra7xx_pcie *dra7xx,
+ }
+ 
+ static int dra7xx_pcie_raise_irq(struct dw_pcie_ep *ep, u8 func_no,
+-				 enum pci_epc_irq_type type, u16 interrupt_num)
++				 unsigned int type, u16 interrupt_num)
+ {
+ 	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
+ 	struct dra7xx_pcie *dra7xx = to_dra7xx_pcie(pci);
+ 
+ 	switch (type) {
+-	case PCI_EPC_IRQ_LEGACY:
++	case PCI_IRQ_LEGACY:
+ 		dra7xx_pcie_raise_legacy_irq(dra7xx);
+ 		break;
+-	case PCI_EPC_IRQ_MSI:
++	case PCI_IRQ_MSI:
+ 		dra7xx_pcie_raise_msi_irq(dra7xx, interrupt_num);
+ 		break;
+ 	default:
+diff --git a/drivers/pci/controller/dwc/pci-imx6.c b/drivers/pci/controller/dwc/pci-imx6.c
+index 74703362aeec..89ca7e2be1da 100644
+--- a/drivers/pci/controller/dwc/pci-imx6.c
++++ b/drivers/pci/controller/dwc/pci-imx6.c
+@@ -1058,17 +1058,16 @@ static void imx6_pcie_ep_init(struct dw_pcie_ep *ep)
+ }
+ 
+ static int imx6_pcie_ep_raise_irq(struct dw_pcie_ep *ep, u8 func_no,
+-				  enum pci_epc_irq_type type,
+-				  u16 interrupt_num)
++				  unsigned int type, u16 interrupt_num)
+ {
+ 	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
+ 
+ 	switch (type) {
+-	case PCI_EPC_IRQ_LEGACY:
++	case PCI_IRQ_LEGACY:
+ 		return dw_pcie_ep_raise_legacy_irq(ep, func_no);
+-	case PCI_EPC_IRQ_MSI:
++	case PCI_IRQ_MSI:
+ 		return dw_pcie_ep_raise_msi_irq(ep, func_no, interrupt_num);
+-	case PCI_EPC_IRQ_MSIX:
++	case PCI_IRQ_MSIX:
+ 		return dw_pcie_ep_raise_msix_irq(ep, func_no, interrupt_num);
+ 	default:
+ 		dev_err(pci->dev, "UNKNOWN IRQ type\n");
+diff --git a/drivers/pci/controller/dwc/pci-keystone.c b/drivers/pci/controller/dwc/pci-keystone.c
+index 49aea6ce3e87..3a94aa4695b6 100644
+--- a/drivers/pci/controller/dwc/pci-keystone.c
++++ b/drivers/pci/controller/dwc/pci-keystone.c
+@@ -900,20 +900,19 @@ static void ks_pcie_am654_raise_legacy_irq(struct keystone_pcie *ks_pcie)
+ }
+ 
+ static int ks_pcie_am654_raise_irq(struct dw_pcie_ep *ep, u8 func_no,
+-				   enum pci_epc_irq_type type,
+-				   u16 interrupt_num)
++				   unsigned int type, u16 interrupt_num)
+ {
+ 	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
+ 	struct keystone_pcie *ks_pcie = to_keystone_pcie(pci);
+ 
+ 	switch (type) {
+-	case PCI_EPC_IRQ_LEGACY:
++	case PCI_IRQ_LEGACY:
+ 		ks_pcie_am654_raise_legacy_irq(ks_pcie);
+ 		break;
+-	case PCI_EPC_IRQ_MSI:
++	case PCI_IRQ_MSI:
+ 		dw_pcie_ep_raise_msi_irq(ep, func_no, interrupt_num);
+ 		break;
+-	case PCI_EPC_IRQ_MSIX:
++	case PCI_IRQ_MSIX:
+ 		dw_pcie_ep_raise_msix_irq(ep, func_no, interrupt_num);
+ 		break;
+ 	default:
+diff --git a/drivers/pci/controller/dwc/pci-layerscape-ep.c b/drivers/pci/controller/dwc/pci-layerscape-ep.c
+index b1faf41a2fae..1aaa219e214c 100644
+--- a/drivers/pci/controller/dwc/pci-layerscape-ep.c
++++ b/drivers/pci/controller/dwc/pci-layerscape-ep.c
+@@ -166,16 +166,16 @@ static void ls_pcie_ep_init(struct dw_pcie_ep *ep)
+ }
+ 
+ static int ls_pcie_ep_raise_irq(struct dw_pcie_ep *ep, u8 func_no,
+-				enum pci_epc_irq_type type, u16 interrupt_num)
++				unsigned int type, u16 interrupt_num)
+ {
+ 	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
+ 
+ 	switch (type) {
+-	case PCI_EPC_IRQ_LEGACY:
++	case PCI_IRQ_LEGACY:
+ 		return dw_pcie_ep_raise_legacy_irq(ep, func_no);
+-	case PCI_EPC_IRQ_MSI:
++	case PCI_IRQ_MSI:
+ 		return dw_pcie_ep_raise_msi_irq(ep, func_no, interrupt_num);
+-	case PCI_EPC_IRQ_MSIX:
++	case PCI_IRQ_MSIX:
+ 		return dw_pcie_ep_raise_msix_irq_doorbell(ep, func_no,
+ 							  interrupt_num);
+ 	default:
+diff --git a/drivers/pci/controller/dwc/pcie-artpec6.c b/drivers/pci/controller/dwc/pcie-artpec6.c
+index 9b572a2b2c9a..d6d08349dd6d 100644
+--- a/drivers/pci/controller/dwc/pcie-artpec6.c
++++ b/drivers/pci/controller/dwc/pcie-artpec6.c
+@@ -352,15 +352,15 @@ static void artpec6_pcie_ep_init(struct dw_pcie_ep *ep)
+ }
+ 
+ static int artpec6_pcie_raise_irq(struct dw_pcie_ep *ep, u8 func_no,
+-				  enum pci_epc_irq_type type, u16 interrupt_num)
++				  unsigned int type, u16 interrupt_num)
+ {
+ 	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
+ 
+ 	switch (type) {
+-	case PCI_EPC_IRQ_LEGACY:
++	case PCI_IRQ_LEGACY:
+ 		dev_err(pci->dev, "EP cannot trigger legacy IRQs\n");
+ 		return -EINVAL;
+-	case PCI_EPC_IRQ_MSI:
++	case PCI_IRQ_MSI:
+ 		return dw_pcie_ep_raise_msi_irq(ep, func_no, interrupt_num);
+ 	default:
+ 		dev_err(pci->dev, "UNKNOWN IRQ type\n");
+diff --git a/drivers/pci/controller/dwc/pcie-designware-ep.c b/drivers/pci/controller/dwc/pcie-designware-ep.c
+index f9182f8d552f..ab87ea3b0986 100644
+--- a/drivers/pci/controller/dwc/pcie-designware-ep.c
++++ b/drivers/pci/controller/dwc/pcie-designware-ep.c
+@@ -426,7 +426,7 @@ static int dw_pcie_ep_set_msix(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ }
+ 
+ static int dw_pcie_ep_raise_irq(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+-				enum pci_epc_irq_type type, u16 interrupt_num)
++				unsigned int type, u16 interrupt_num)
+ {
+ 	struct dw_pcie_ep *ep = epc_get_drvdata(epc);
+ 
+diff --git a/drivers/pci/controller/dwc/pcie-designware-plat.c b/drivers/pci/controller/dwc/pcie-designware-plat.c
+index b625841e98aa..78bb7bc4e285 100644
+--- a/drivers/pci/controller/dwc/pcie-designware-plat.c
++++ b/drivers/pci/controller/dwc/pcie-designware-plat.c
+@@ -42,17 +42,16 @@ static void dw_plat_pcie_ep_init(struct dw_pcie_ep *ep)
+ }
+ 
+ static int dw_plat_pcie_ep_raise_irq(struct dw_pcie_ep *ep, u8 func_no,
+-				     enum pci_epc_irq_type type,
+-				     u16 interrupt_num)
++				     unsigned int type, u16 interrupt_num)
+ {
+ 	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
+ 
+ 	switch (type) {
+-	case PCI_EPC_IRQ_LEGACY:
++	case PCI_IRQ_LEGACY:
+ 		return dw_pcie_ep_raise_legacy_irq(ep, func_no);
+-	case PCI_EPC_IRQ_MSI:
++	case PCI_IRQ_MSI:
+ 		return dw_pcie_ep_raise_msi_irq(ep, func_no, interrupt_num);
+-	case PCI_EPC_IRQ_MSIX:
++	case PCI_IRQ_MSIX:
+ 		return dw_pcie_ep_raise_msix_irq(ep, func_no, interrupt_num);
+ 	default:
+ 		dev_err(pci->dev, "UNKNOWN IRQ type\n");
+diff --git a/drivers/pci/controller/dwc/pcie-designware.h b/drivers/pci/controller/dwc/pcie-designware.h
+index ef0b2efa9f93..706a34badba0 100644
+--- a/drivers/pci/controller/dwc/pcie-designware.h
++++ b/drivers/pci/controller/dwc/pcie-designware.h
+@@ -331,7 +331,7 @@ struct dw_pcie_rp {
+ struct dw_pcie_ep_ops {
+ 	void	(*ep_init)(struct dw_pcie_ep *ep);
+ 	int	(*raise_irq)(struct dw_pcie_ep *ep, u8 func_no,
+-			     enum pci_epc_irq_type type, u16 interrupt_num);
++			     unsigned int type, u16 interrupt_num);
+ 	const struct pci_epc_features* (*get_features)(struct dw_pcie_ep *ep);
+ 	/*
+ 	 * Provide a method to implement the different func config space
+diff --git a/drivers/pci/controller/dwc/pcie-keembay.c b/drivers/pci/controller/dwc/pcie-keembay.c
+index 289bff99d762..9419fb386fac 100644
+--- a/drivers/pci/controller/dwc/pcie-keembay.c
++++ b/drivers/pci/controller/dwc/pcie-keembay.c
+@@ -289,19 +289,18 @@ static void keembay_pcie_ep_init(struct dw_pcie_ep *ep)
+ }
+ 
+ static int keembay_pcie_ep_raise_irq(struct dw_pcie_ep *ep, u8 func_no,
+-				     enum pci_epc_irq_type type,
+-				     u16 interrupt_num)
++				     unsigned int type, u16 interrupt_num)
+ {
+ 	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
+ 
+ 	switch (type) {
+-	case PCI_EPC_IRQ_LEGACY:
++	case PCI_IRQ_LEGACY:
+ 		/* Legacy interrupts are not supported in Keem Bay */
+ 		dev_err(pci->dev, "Legacy IRQ is not supported\n");
+ 		return -EINVAL;
+-	case PCI_EPC_IRQ_MSI:
++	case PCI_IRQ_MSI:
+ 		return dw_pcie_ep_raise_msi_irq(ep, func_no, interrupt_num);
+-	case PCI_EPC_IRQ_MSIX:
++	case PCI_IRQ_MSIX:
+ 		return dw_pcie_ep_raise_msix_irq(ep, func_no, interrupt_num);
+ 	default:
+ 		dev_err(pci->dev, "Unknown IRQ type %d\n", type);
+diff --git a/drivers/pci/controller/dwc/pcie-qcom-ep.c b/drivers/pci/controller/dwc/pcie-qcom-ep.c
+index 8bd8107690a6..015288711864 100644
+--- a/drivers/pci/controller/dwc/pcie-qcom-ep.c
++++ b/drivers/pci/controller/dwc/pcie-qcom-ep.c
+@@ -728,14 +728,14 @@ static int qcom_pcie_ep_enable_irq_resources(struct platform_device *pdev,
+ }
+ 
+ static int qcom_pcie_ep_raise_irq(struct dw_pcie_ep *ep, u8 func_no,
+-				  enum pci_epc_irq_type type, u16 interrupt_num)
++				  unsigned int type, u16 interrupt_num)
+ {
+ 	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
+ 
+ 	switch (type) {
+-	case PCI_EPC_IRQ_LEGACY:
++	case PCI_IRQ_LEGACY:
+ 		return dw_pcie_ep_raise_legacy_irq(ep, func_no);
+-	case PCI_EPC_IRQ_MSI:
++	case PCI_IRQ_MSI:
+ 		return dw_pcie_ep_raise_msi_irq(ep, func_no, interrupt_num);
+ 	default:
+ 		dev_err(pci->dev, "Unknown IRQ type\n");
+diff --git a/drivers/pci/controller/dwc/pcie-tegra194.c b/drivers/pci/controller/dwc/pcie-tegra194.c
+index 4bba31502ce1..51cb5ef5eb1c 100644
+--- a/drivers/pci/controller/dwc/pcie-tegra194.c
++++ b/drivers/pci/controller/dwc/pcie-tegra194.c
+@@ -1982,20 +1982,19 @@ static int tegra_pcie_ep_raise_msix_irq(struct tegra_pcie_dw *pcie, u16 irq)
+ }
+ 
+ static int tegra_pcie_ep_raise_irq(struct dw_pcie_ep *ep, u8 func_no,
+-				   enum pci_epc_irq_type type,
+-				   u16 interrupt_num)
++				   unsigned int type, u16 interrupt_num)
+ {
+ 	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
+ 	struct tegra_pcie_dw *pcie = to_tegra_pcie(pci);
+ 
+ 	switch (type) {
+-	case PCI_EPC_IRQ_LEGACY:
++	case PCI_IRQ_LEGACY:
+ 		return tegra_pcie_ep_raise_legacy_irq(pcie, interrupt_num);
+ 
+-	case PCI_EPC_IRQ_MSI:
++	case PCI_IRQ_MSI:
+ 		return tegra_pcie_ep_raise_msi_irq(pcie, interrupt_num);
+ 
+-	case PCI_EPC_IRQ_MSIX:
++	case PCI_IRQ_MSIX:
+ 		return tegra_pcie_ep_raise_msix_irq(pcie, interrupt_num);
+ 
+ 	default:
+diff --git a/drivers/pci/controller/dwc/pcie-uniphier-ep.c b/drivers/pci/controller/dwc/pcie-uniphier-ep.c
+index cba3c88fcf39..65da8d93a8ea 100644
+--- a/drivers/pci/controller/dwc/pcie-uniphier-ep.c
++++ b/drivers/pci/controller/dwc/pcie-uniphier-ep.c
+@@ -256,15 +256,14 @@ static int uniphier_pcie_ep_raise_msi_irq(struct dw_pcie_ep *ep,
+ }
+ 
+ static int uniphier_pcie_ep_raise_irq(struct dw_pcie_ep *ep, u8 func_no,
+-				      enum pci_epc_irq_type type,
+-				      u16 interrupt_num)
++				      unsigned int type, u16 interrupt_num)
+ {
+ 	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
+ 
+ 	switch (type) {
+-	case PCI_EPC_IRQ_LEGACY:
++	case PCI_IRQ_LEGACY:
+ 		return uniphier_pcie_ep_raise_legacy_irq(ep);
+-	case PCI_EPC_IRQ_MSI:
++	case PCI_IRQ_MSI:
+ 		return uniphier_pcie_ep_raise_msi_irq(ep, func_no,
+ 						      interrupt_num);
+ 	default:
+diff --git a/drivers/pci/controller/pcie-rcar-ep.c b/drivers/pci/controller/pcie-rcar-ep.c
+index f9682df1da61..2172db2343d9 100644
+--- a/drivers/pci/controller/pcie-rcar-ep.c
++++ b/drivers/pci/controller/pcie-rcar-ep.c
+@@ -402,16 +402,15 @@ static int rcar_pcie_ep_assert_msi(struct rcar_pcie *pcie,
+ }
+ 
+ static int rcar_pcie_ep_raise_irq(struct pci_epc *epc, u8 fn, u8 vfn,
+-				  enum pci_epc_irq_type type,
+-				  u16 interrupt_num)
++				  unsigned int type, u16 interrupt_num)
+ {
+ 	struct rcar_pcie_endpoint *ep = epc_get_drvdata(epc);
+ 
+ 	switch (type) {
+-	case PCI_EPC_IRQ_LEGACY:
++	case PCI_IRQ_LEGACY:
+ 		return rcar_pcie_ep_assert_intx(ep, fn, 0);
+ 
+-	case PCI_EPC_IRQ_MSI:
++	case PCI_IRQ_MSI:
+ 		return rcar_pcie_ep_assert_msi(&ep->pcie, fn, interrupt_num);
+ 
+ 	default:
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index 4a80676cb7ce..bdb9ffe48c36 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -407,15 +407,14 @@ static int rockchip_pcie_ep_send_msi_irq(struct rockchip_pcie_ep *ep, u8 fn,
+ }
+ 
+ static int rockchip_pcie_ep_raise_irq(struct pci_epc *epc, u8 fn, u8 vfn,
+-				      enum pci_epc_irq_type type,
+-				      u16 interrupt_num)
++				      unsigned int type, u16 interrupt_num)
+ {
+ 	struct rockchip_pcie_ep *ep = epc_get_drvdata(epc);
+ 
+ 	switch (type) {
+-	case PCI_EPC_IRQ_LEGACY:
++	case PCI_IRQ_LEGACY:
+ 		return rockchip_pcie_ep_send_legacy_irq(ep, fn, 0);
+-	case PCI_EPC_IRQ_MSI:
++	case PCI_IRQ_MSI:
+ 		return rockchip_pcie_ep_send_msi_irq(ep, fn, interrupt_num);
+ 	default:
+ 		return -EINVAL;
+diff --git a/drivers/pci/endpoint/functions/pci-epf-mhi.c b/drivers/pci/endpoint/functions/pci-epf-mhi.c
+index 891a4c3147a7..b9871916fb40 100644
+--- a/drivers/pci/endpoint/functions/pci-epf-mhi.c
++++ b/drivers/pci/endpoint/functions/pci-epf-mhi.c
+@@ -205,7 +205,7 @@ static void pci_epf_mhi_raise_irq(struct mhi_ep_cntrl *mhi_cntrl, u32 vector)
+ 	 * MHI supplies 0 based MSI vectors but the API expects the vector
+ 	 * number to start from 1, so we need to increment the vector by 1.
+ 	 */
+-	pci_epc_raise_irq(epc, epf->func_no, epf->vfunc_no, PCI_EPC_IRQ_MSI,
++	pci_epc_raise_irq(epc, epf->func_no, epf->vfunc_no, PCI_IRQ_MSI,
+ 			  vector + 1);
+ }
+ 
+diff --git a/drivers/pci/endpoint/functions/pci-epf-ntb.c b/drivers/pci/endpoint/functions/pci-epf-ntb.c
+index 9aac2c6f3bb9..fad00b1a8335 100644
+--- a/drivers/pci/endpoint/functions/pci-epf-ntb.c
++++ b/drivers/pci/endpoint/functions/pci-epf-ntb.c
+@@ -140,9 +140,9 @@ static struct pci_epf_header epf_ntb_header = {
+ static int epf_ntb_link_up(struct epf_ntb *ntb, bool link_up)
+ {
+ 	enum pci_epc_interface_type type;
+-	enum pci_epc_irq_type irq_type;
+ 	struct epf_ntb_epc *ntb_epc;
+ 	struct epf_ntb_ctrl *ctrl;
++	unsigned int irq_type;
+ 	struct pci_epc *epc;
+ 	u8 func_no, vfunc_no;
+ 	bool is_msix;
+@@ -159,7 +159,7 @@ static int epf_ntb_link_up(struct epf_ntb *ntb, bool link_up)
+ 			ctrl->link_status |= LINK_STATUS_UP;
+ 		else
+ 			ctrl->link_status &= ~LINK_STATUS_UP;
+-		irq_type = is_msix ? PCI_EPC_IRQ_MSIX : PCI_EPC_IRQ_MSI;
++		irq_type = is_msix ? PCI_IRQ_MSIX : PCI_IRQ_MSI;
+ 		ret = pci_epc_raise_irq(epc, func_no, vfunc_no, irq_type, 1);
+ 		if (ret) {
+ 			dev_err(&epc->dev,
+diff --git a/drivers/pci/endpoint/functions/pci-epf-test.c b/drivers/pci/endpoint/functions/pci-epf-test.c
+index fa993e71c224..76ddf4c92511 100644
+--- a/drivers/pci/endpoint/functions/pci-epf-test.c
++++ b/drivers/pci/endpoint/functions/pci-epf-test.c
+@@ -602,7 +602,7 @@ static void pci_epf_test_raise_irq(struct pci_epf_test *epf_test,
+ 	switch (reg->irq_type) {
+ 	case IRQ_TYPE_LEGACY:
+ 		pci_epc_raise_irq(epc, epf->func_no, epf->vfunc_no,
+-				  PCI_EPC_IRQ_LEGACY, 0);
++				  PCI_IRQ_LEGACY, 0);
+ 		break;
+ 	case IRQ_TYPE_MSI:
+ 		count = pci_epc_get_msi(epc, epf->func_no, epf->vfunc_no);
+@@ -612,7 +612,7 @@ static void pci_epf_test_raise_irq(struct pci_epf_test *epf_test,
+ 			return;
+ 		}
+ 		pci_epc_raise_irq(epc, epf->func_no, epf->vfunc_no,
+-				  PCI_EPC_IRQ_MSI, reg->irq_number);
++				  PCI_IRQ_MSI, reg->irq_number);
+ 		break;
+ 	case IRQ_TYPE_MSIX:
+ 		count = pci_epc_get_msix(epc, epf->func_no, epf->vfunc_no);
+@@ -622,7 +622,7 @@ static void pci_epf_test_raise_irq(struct pci_epf_test *epf_test,
+ 			return;
+ 		}
+ 		pci_epc_raise_irq(epc, epf->func_no, epf->vfunc_no,
+-				  PCI_EPC_IRQ_MSIX, reg->irq_number);
++				  PCI_IRQ_MSIX, reg->irq_number);
+ 		break;
+ 	default:
+ 		dev_err(dev, "Failed to raise IRQ, unknown type\n");
+diff --git a/drivers/pci/endpoint/functions/pci-epf-vntb.c b/drivers/pci/endpoint/functions/pci-epf-vntb.c
+index 3f60128560ed..e6a0bcc177e4 100644
+--- a/drivers/pci/endpoint/functions/pci-epf-vntb.c
++++ b/drivers/pci/endpoint/functions/pci-epf-vntb.c
+@@ -1172,11 +1172,8 @@ static int vntb_epf_peer_db_set(struct ntb_dev *ndev, u64 db_bits)
+ 	func_no = ntb->epf->func_no;
+ 	vfunc_no = ntb->epf->vfunc_no;
+ 
+-	ret = pci_epc_raise_irq(ntb->epf->epc,
+-				func_no,
+-				vfunc_no,
+-				PCI_EPC_IRQ_MSI,
+-				interrupt_num + 1);
++	ret = pci_epc_raise_irq(ntb->epf->epc, func_no, vfunc_no,
++				PCI_IRQ_MSI, interrupt_num + 1);
+ 	if (ret)
+ 		dev_err(&ntb->ntb.dev, "Failed to raise IRQ\n");
+ 
+diff --git a/drivers/pci/endpoint/pci-epc-core.c b/drivers/pci/endpoint/pci-epc-core.c
+index 5a4a8b0be626..c80d06db4249 100644
+--- a/drivers/pci/endpoint/pci-epc-core.c
++++ b/drivers/pci/endpoint/pci-epc-core.c
+@@ -217,7 +217,7 @@ EXPORT_SYMBOL_GPL(pci_epc_start);
+  * Invoke to raise an legacy, MSI or MSI-X interrupt
+  */
+ int pci_epc_raise_irq(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+-		      enum pci_epc_irq_type type, u16 interrupt_num)
++		      unsigned int type, u16 interrupt_num)
+ {
+ 	int ret;
+ 
+diff --git a/include/linux/pci-epc.h b/include/linux/pci-epc.h
+index 5cb694031072..f498f9aa2ab0 100644
+--- a/include/linux/pci-epc.h
++++ b/include/linux/pci-epc.h
+@@ -19,13 +19,6 @@ enum pci_epc_interface_type {
+ 	SECONDARY_INTERFACE,
+ };
+ 
+-enum pci_epc_irq_type {
+-	PCI_EPC_IRQ_UNKNOWN,
+-	PCI_EPC_IRQ_LEGACY,
+-	PCI_EPC_IRQ_MSI,
+-	PCI_EPC_IRQ_MSIX,
+-};
+-
+ static inline const char *
+ pci_epc_interface_string(enum pci_epc_interface_type type)
+ {
+@@ -79,7 +72,7 @@ struct pci_epc_ops {
+ 			    u16 interrupts, enum pci_barno, u32 offset);
+ 	int	(*get_msix)(struct pci_epc *epc, u8 func_no, u8 vfunc_no);
+ 	int	(*raise_irq)(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+-			     enum pci_epc_irq_type type, u16 interrupt_num);
++			     unsigned int type, u16 interrupt_num);
+ 	int	(*map_msi_irq)(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 			       phys_addr_t phys_addr, u8 interrupt_num,
+ 			       u32 entry_size, u32 *msi_data,
+@@ -229,7 +222,7 @@ int pci_epc_map_msi_irq(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 			phys_addr_t phys_addr, u8 interrupt_num,
+ 			u32 entry_size, u32 *msi_data, u32 *msi_addr_offset);
+ int pci_epc_raise_irq(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+-		      enum pci_epc_irq_type type, u16 interrupt_num);
++		      unsigned int type, u16 interrupt_num);
+ int pci_epc_start(struct pci_epc *epc);
+ void pci_epc_stop(struct pci_epc *epc);
+ const struct pci_epc_features *pci_epc_get_features(struct pci_epc *epc,
+-- 
+2.41.0
+

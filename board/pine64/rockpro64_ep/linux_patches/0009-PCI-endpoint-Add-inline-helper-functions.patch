@@ -1,0 +1,139 @@
+From e20cd02ea4b780267327ddaba9bad467ad0b012b Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Wed, 12 Apr 2023 19:21:34 +0900
+Subject: [PATCH 09/25] PCI: endpoint: Add inline helper functions
+
+The pci endpoint core code has many functions with the form:
+
+pci_epc_XXX(struct pci_epc *epc, u8 func_no, u8 vfunc_no, ...)
+
+All these function allow endpoint function drivers to implement any
+number of functions and virtual functions. However, for the most common
+case of a function driver implementing a single function with a single
+physical function, a simpler API can be defined as the epc, func_no, and
+vfunc_no arguments can be trivially infered from struct pci_epf.
+
+Allow simplifying the code of enpoint function drivers by defining
+inline helper functions of the form:
+
+pci_epf_XXX(struct pci_epf *epf, ...)
+
+of all endpoint controller core functions of the form:
+
+pci_epc_XXX(struct pci_epc *epc, u8 func_no, u8 vfunc_no, ...)
+
+The new pci_epf_XXX() functions all call the equivalent pci_epc_XXX()
+functions using epf->epc, epf->func_no and epf->vfunc_no as arguments.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ include/linux/pci-epf.h | 95 +++++++++++++++++++++++++++++++++++++++++
+ 1 file changed, 95 insertions(+)
+
+diff --git a/include/linux/pci-epf.h b/include/linux/pci-epf.h
+index 22af43f93840..289f00f5f5ad 100644
+--- a/include/linux/pci-epf.h
++++ b/include/linux/pci-epf.h
+@@ -222,4 +222,99 @@ int pci_epf_bind(struct pci_epf *epf);
+ void pci_epf_unbind(struct pci_epf *epf);
+ int pci_epf_add_vepf(struct pci_epf *epf_pf, struct pci_epf *epf_vf);
+ void pci_epf_remove_vepf(struct pci_epf *epf_pf, struct pci_epf *epf_vf);
++
++/*
++ * Inline helpers for endpoint function drivers implementing only
++ * a single physical function as indicated by epf->func_no and epf->vfunc_no.
++ * When called, the epc, func_no and vfunc_no fields of struct pci_epf must
++ * be set. That is, it is safe to use these helpers starting from the function
++ * bind context.
++ */
++static inline const struct pci_epc_features *
++pci_epf_get_features(struct pci_epf *epf)
++{
++	return pci_epc_get_features(epf->epc, epf->func_no, epf->vfunc_no);
++}
++
++static inline int pci_epf_write_header(struct pci_epf *epf,
++				       struct pci_epf_header *hdr)
++{
++	return pci_epc_write_header(epf->epc, epf->func_no, epf->vfunc_no, hdr);
++}
++
++static inline int pci_epf_set_bar(struct pci_epf *epf,
++				  struct pci_epf_bar *epf_bar)
++{
++	return pci_epc_set_bar(epf->epc, epf->func_no, epf->vfunc_no, epf_bar);
++}
++
++static inline void pci_epf_clear_bar(struct pci_epf *epf,
++				     struct pci_epf_bar *epf_bar)
++{
++	pci_epc_clear_bar(epf->epc, epf->func_no, epf->vfunc_no, epf_bar);
++}
++
++static inline int pci_epf_map_info(struct pci_epf *epf, u64 pci_addr,
++				   size_t size, struct pci_epc_map *map)
++{
++	return pci_epc_map_info(epf->epc, epf->func_no, epf->vfunc_no,
++				pci_addr, size, map);
++}
++
++static inline int pci_epf_map_addr(struct pci_epf *epf, phys_addr_t phys_addr,
++				   u64 pci_addr, size_t size)
++{
++	return pci_epc_map_addr(epf->epc, epf->func_no, epf->vfunc_no,
++				phys_addr, pci_addr, size);
++}
++
++static inline void pci_epf_unmap_addr(struct pci_epf *epf,
++				      phys_addr_t phys_addr)
++{
++	pci_epc_unmap_addr(epf->epc, epf->func_no, epf->vfunc_no, phys_addr);
++}
++
++static inline int pci_epf_mem_map(struct pci_epf *epf, u64 pci_addr,
++				  size_t size, struct pci_epc_map *map)
++{
++	return pci_epc_mem_map(epf->epc, epf->func_no, epf->vfunc_no,
++			       pci_addr, size, map);
++}
++
++static inline void pci_epf_mem_unmap(struct pci_epf *epf,
++				     struct pci_epc_map *map)
++{
++	pci_epc_mem_unmap(epf->epc, epf->func_no, epf->vfunc_no, map);
++}
++
++static inline int pci_epf_set_msi(struct pci_epf *epf, u8 interrupts)
++{
++	return pci_epc_set_msi(epf->epc, epf->func_no, epf->vfunc_no,
++			       interrupts);
++}
++
++static inline int pci_epf_get_msi(struct pci_epf *epf)
++{
++	return pci_epc_get_msi(epf->epc, epf->func_no, epf->vfunc_no);
++}
++
++static inline int pci_epf_set_msix(struct pci_epf *epf, u16 interrupts,
++				   enum pci_barno barno, u32 offset)
++{
++	return pci_epc_set_msix(epf->epc, epf->func_no, epf->vfunc_no,
++				interrupts, barno, offset);
++}
++
++static inline int pci_epf_get_msix(struct pci_epf *epf)
++{
++	return pci_epc_get_msix(epf->epc, epf->func_no, epf->vfunc_no);
++}
++
++static inline int pci_epf_raise_irq(struct pci_epf *epf,
++				    unsigned int type, u16 interrupt_num)
++{
++	return pci_epc_raise_irq(epf->epc, epf->func_no, epf->vfunc_no,
++				 type, interrupt_num);
++}
++
+ #endif /* __LINUX_PCI_EPF_H */
+-- 
+2.41.0
+
