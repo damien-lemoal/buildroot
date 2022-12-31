@@ -1,0 +1,39 @@
+From 374dc22f8af9246e021cfd11eb5a900c29aa1af6 Mon Sep 17 00:00:00 2001
+From: Rick Wertenbroek <rick.wertenbroek@gmail.com>
+Date: Tue, 4 Apr 2023 10:24:16 +0200
+Subject: [PATCH 20/51] PCI: rockchip: Assert PCI Configuration Enable bit
+ after probe
+
+Assert PCI Configuration Enable bit after probe. When this bit is left to
+0 in the endpoint mode, the RK3399 PCIe endpoint core will generate
+configuration request retry status (CRS) messages back to the root complex.
+Assert this bit after probe to allow the RK3399 PCIe endpoint core to reply
+to configuration requests from the root complex.
+This is documented in section 17.5.8.1.2 of the RK3399 TRM.
+
+Fixes: cf590b078391 ("PCI: rockchip: Add EP driver for Rockchip PCIe controller")
+Cc: stable@vger.kernel.org
+Signed-off-by: Rick Wertenbroek <rick.wertenbroek@gmail.com>
+Reviewed-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Tested-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index 9b835377bd9e..4c84e403e155 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -623,6 +623,8 @@ static int rockchip_pcie_ep_probe(struct platform_device *pdev)
+ 
+ 	ep->irq_pci_addr = ROCKCHIP_PCIE_EP_DUMMY_IRQ_ADDR;
+ 
++	rockchip_pcie_write(rockchip, PCIE_CLIENT_CONF_ENABLE, PCIE_CLIENT_CONFIG);
++
+ 	return 0;
+ err_epc_mem_exit:
+ 	pci_epc_mem_exit(epc);
+-- 
+2.39.2
+

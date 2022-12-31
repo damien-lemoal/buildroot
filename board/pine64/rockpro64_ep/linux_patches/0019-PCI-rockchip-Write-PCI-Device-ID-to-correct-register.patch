@@ -1,0 +1,61 @@
+From d9388608be1d7b5a86861224d1e36f0f3ad8fcc0 Mon Sep 17 00:00:00 2001
+From: Rick Wertenbroek <rick.wertenbroek@gmail.com>
+Date: Tue, 4 Apr 2023 10:24:15 +0200
+Subject: [PATCH 19/51] PCI: rockchip: Write PCI Device ID to correct register
+
+Write PCI Device ID (DID) to the correct register. The Device ID was not
+updated through the correct register. Device ID was written to a read-only
+register and therefore did not work. The Device ID is now set through the
+correct register. This is documented in the RK3399 TRM section 17.6.6.1.1
+
+Fixes: cf590b078391 ("PCI: rockchip: Add EP driver for Rockchip PCIe controller")
+Cc: stable@vger.kernel.org
+Signed-off-by: Rick Wertenbroek <rick.wertenbroek@gmail.com>
+Reviewed-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Tested-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 6 ++++--
+ drivers/pci/controller/pcie-rockchip.h    | 2 ++
+ 2 files changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index d5c477020417..9b835377bd9e 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -115,6 +115,7 @@ static void rockchip_pcie_prog_ep_ob_atu(struct rockchip_pcie *rockchip, u8 fn,
+ static int rockchip_pcie_ep_write_header(struct pci_epc *epc, u8 fn, u8 vfn,
+ 					 struct pci_epf_header *hdr)
+ {
++	u32 reg;
+ 	struct rockchip_pcie_ep *ep = epc_get_drvdata(epc);
+ 	struct rockchip_pcie *rockchip = &ep->rockchip;
+ 
+@@ -127,8 +128,9 @@ static int rockchip_pcie_ep_write_header(struct pci_epc *epc, u8 fn, u8 vfn,
+ 				    PCIE_CORE_CONFIG_VENDOR);
+ 	}
+ 
+-	rockchip_pcie_write(rockchip, hdr->deviceid << 16,
+-			    ROCKCHIP_PCIE_EP_FUNC_BASE(fn) + PCI_VENDOR_ID);
++	reg = rockchip_pcie_read(rockchip, PCIE_EP_CONFIG_DID_VID);
++	reg = (reg & 0xFFFF) | (hdr->deviceid << 16);
++	rockchip_pcie_write(rockchip, reg, PCIE_EP_CONFIG_DID_VID);
+ 
+ 	rockchip_pcie_write(rockchip,
+ 			    hdr->revid |
+diff --git a/drivers/pci/controller/pcie-rockchip.h b/drivers/pci/controller/pcie-rockchip.h
+index 32c3a859c26b..51a123e5c0cf 100644
+--- a/drivers/pci/controller/pcie-rockchip.h
++++ b/drivers/pci/controller/pcie-rockchip.h
+@@ -133,6 +133,8 @@
+ #define PCIE_RC_RP_ATS_BASE		0x400000
+ #define PCIE_RC_CONFIG_NORMAL_BASE	0x800000
+ #define PCIE_RC_CONFIG_BASE		0xa00000
++#define PCIE_EP_CONFIG_BASE		0xa00000
++#define PCIE_EP_CONFIG_DID_VID		(PCIE_EP_CONFIG_BASE + 0x00)
+ #define PCIE_RC_CONFIG_RID_CCR		(PCIE_RC_CONFIG_BASE + 0x08)
+ #define PCIE_RC_CONFIG_DCR		(PCIE_RC_CONFIG_BASE + 0xc4)
+ #define   PCIE_RC_CONFIG_DCR_CSPL_SHIFT		18
+-- 
+2.39.2
+

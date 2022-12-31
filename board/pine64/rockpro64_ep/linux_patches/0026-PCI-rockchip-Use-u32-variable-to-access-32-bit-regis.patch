@@ -1,0 +1,76 @@
+From 548038901882b2ed9fe158e8603ba420c66e8251 Mon Sep 17 00:00:00 2001
+From: Rick Wertenbroek <rick.wertenbroek@gmail.com>
+Date: Tue, 4 Apr 2023 10:24:22 +0200
+Subject: [PATCH 26/51] PCI: rockchip: Use u32 variable to access 32-bit
+ registers
+
+Previously u16 variables were used to access 32-bit registers, this
+resulted in not all of the data being read from the registers. Also
+the left shift of more than 16-bits would result in moving data out
+of the variable. Use u32 variables to access 32-bit registers
+
+Fixes: cf590b078391 ("PCI: rockchip: Add EP driver for Rockchip PCIe controller")
+Cc: stable@vger.kernel.org
+Signed-off-by: Rick Wertenbroek <rick.wertenbroek@gmail.com>
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 10 +++++-----
+ drivers/pci/controller/pcie-rockchip.h    |  1 +
+ 2 files changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index f366846ad77c..924b95bd736c 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -274,15 +274,15 @@ static int rockchip_pcie_ep_set_msi(struct pci_epc *epc, u8 fn, u8 vfn,
+ {
+ 	struct rockchip_pcie_ep *ep = epc_get_drvdata(epc);
+ 	struct rockchip_pcie *rockchip = &ep->rockchip;
+-	u16 flags;
++	u32 flags;
+ 
+ 	flags = rockchip_pcie_read(rockchip,
+ 				   ROCKCHIP_PCIE_EP_FUNC_BASE(fn) +
+ 				   ROCKCHIP_PCIE_EP_MSI_CTRL_REG);
+ 	flags &= ~ROCKCHIP_PCIE_EP_MSI_CTRL_MMC_MASK;
+ 	flags |=
+-	   ((multi_msg_cap << 1) <<  ROCKCHIP_PCIE_EP_MSI_CTRL_MMC_OFFSET) |
+-	   PCI_MSI_FLAGS_64BIT;
++	   (multi_msg_cap << ROCKCHIP_PCIE_EP_MSI_CTRL_MMC_OFFSET) |
++	   (PCI_MSI_FLAGS_64BIT << ROCKCHIP_PCIE_EP_MSI_FLAGS_OFFSET);
+ 	flags &= ~ROCKCHIP_PCIE_EP_MSI_CTRL_MASK_MSI_CAP;
+ 	rockchip_pcie_write(rockchip, flags,
+ 			    ROCKCHIP_PCIE_EP_FUNC_BASE(fn) +
+@@ -294,7 +294,7 @@ static int rockchip_pcie_ep_get_msi(struct pci_epc *epc, u8 fn, u8 vfn)
+ {
+ 	struct rockchip_pcie_ep *ep = epc_get_drvdata(epc);
+ 	struct rockchip_pcie *rockchip = &ep->rockchip;
+-	u16 flags;
++	u32 flags;
+ 
+ 	flags = rockchip_pcie_read(rockchip,
+ 				   ROCKCHIP_PCIE_EP_FUNC_BASE(fn) +
+@@ -355,7 +355,7 @@ static int rockchip_pcie_ep_send_msi_irq(struct rockchip_pcie_ep *ep, u8 fn,
+ 					 u8 interrupt_num)
+ {
+ 	struct rockchip_pcie *rockchip = &ep->rockchip;
+-	u16 flags, mme, data, data_mask;
++	u32 flags, mme, data, data_mask;
+ 	u8 msi_count;
+ 	u64 pci_addr, pci_addr_mask = 0xff;
+ 	u32 r;
+diff --git a/drivers/pci/controller/pcie-rockchip.h b/drivers/pci/controller/pcie-rockchip.h
+index 5797ba73bb6b..1558eae298ae 100644
+--- a/drivers/pci/controller/pcie-rockchip.h
++++ b/drivers/pci/controller/pcie-rockchip.h
+@@ -226,6 +226,7 @@
+ #define ROCKCHIP_PCIE_EP_CMD_STATUS			0x4
+ #define   ROCKCHIP_PCIE_EP_CMD_STATUS_IS		BIT(19)
+ #define ROCKCHIP_PCIE_EP_MSI_CTRL_REG			0x90
++#define   ROCKCHIP_PCIE_EP_MSI_FLAGS_OFFSET		16
+ #define   ROCKCHIP_PCIE_EP_MSI_CTRL_MMC_OFFSET		17
+ #define   ROCKCHIP_PCIE_EP_MSI_CTRL_MMC_MASK		GENMASK(19, 17)
+ #define   ROCKCHIP_PCIE_EP_MSI_CTRL_MME_OFFSET		20
+-- 
+2.39.2
+

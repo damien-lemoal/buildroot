@@ -1,0 +1,42 @@
+From 8e0b2285231d6b4fea7f27ce3469289f22f1f363 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Sun, 5 Feb 2023 11:36:47 +0900
+Subject: [PATCH 15/51] misc: pci_endpoint_test: Re-init completion for every
+ test
+
+The irq_raised completion used to detect the end of a test case is
+initialized when the test device is probed, but never reinitialized
+again before a test case. As a result, the irq_raised completion
+synchronization is effective only for the first ioctl test case
+executed. Any subsequent call to wait_for_completion() by another
+ioctl() call will immediately return, potentially too early, leading to
+false positive failures.
+
+Fix this by reinitializing the irq_raised completion before starting a
+new ioctl() test command.
+
+Fixes: 2c156ac71c6b ("misc: Add host side PCI driver for PCI test function device")
+Cc: stable@vger.kernel.org
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/misc/pci_endpoint_test.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/drivers/misc/pci_endpoint_test.c b/drivers/misc/pci_endpoint_test.c
+index 01235236e9bc..24efe3b88a1f 100644
+--- a/drivers/misc/pci_endpoint_test.c
++++ b/drivers/misc/pci_endpoint_test.c
+@@ -729,6 +729,10 @@ static long pci_endpoint_test_ioctl(struct file *file, unsigned int cmd,
+ 	struct pci_dev *pdev = test->pdev;
+ 
+ 	mutex_lock(&test->mutex);
++
++	reinit_completion(&test->irq_raised);
++	test->last_irq = -ENODATA;
++
+ 	switch (cmd) {
+ 	case PCITEST_BAR:
+ 		bar = arg;
+-- 
+2.39.2
+

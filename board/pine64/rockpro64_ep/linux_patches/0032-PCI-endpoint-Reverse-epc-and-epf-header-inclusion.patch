@@ -1,0 +1,88 @@
+From cd1f46df47dfe3d58b88c55e091cb9792233525a Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Wed, 12 Apr 2023 19:25:45 +0900
+Subject: [PATCH 32/51] PCI: endpoint: Reverse epc and epf header inclusion
+
+Have pci-epf.h include pci-epc.h instead of the reverse. This matches
+the API stacking phylosophy of having functions implemented using a
+controller. With this change, the definition for struct
+pci_epc_event_ops can be moved to pci-epc.h where it belongs.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ include/linux/pci-epc.h | 16 +++++++++++++++-
+ include/linux/pci-epf.h | 13 +------------
+ 2 files changed, 16 insertions(+), 13 deletions(-)
+
+diff --git a/include/linux/pci-epc.h b/include/linux/pci-epc.h
+index 62cce824450b..18a0c3dc1a95 100644
+--- a/include/linux/pci-epc.h
++++ b/include/linux/pci-epc.h
+@@ -9,9 +9,13 @@
+ #ifndef __LINUX_PCI_EPC_H
+ #define __LINUX_PCI_EPC_H
+ 
+-#include <linux/pci-epf.h>
++#include <linux/pci.h>
+ 
+ struct pci_epc;
++struct pci_epf;
++struct pci_epf_bar;
++struct pci_epf_header;
++enum pci_barno;
+ 
+ enum pci_epc_interface_type {
+ 	UNKNOWN_INTERFACE = -1,
+@@ -32,6 +36,16 @@ pci_epc_interface_string(enum pci_epc_interface_type type)
+ 	}
+ }
+ 
++/**
++ * struct pci_epf_event_ops - Callbacks for capturing the EPC events
++ * @core_init: Callback for the EPC initialization complete event
++ * @link_up: Callback for the EPC link up event
++ */
++struct pci_epc_event_ops {
++	int (*core_init)(struct pci_epf *epf);
++	int (*link_up)(struct pci_epf *epf);
++};
++
+ /**
+  * struct pci_epc_ops - set of function pointers for performing EPC operations
+  * @write_header: ops to populate configuration space header
+diff --git a/include/linux/pci-epf.h b/include/linux/pci-epf.h
+index b8441db2fa52..d6f801b16152 100644
+--- a/include/linux/pci-epf.h
++++ b/include/linux/pci-epf.h
+@@ -12,10 +12,9 @@
+ #include <linux/configfs.h>
+ #include <linux/device.h>
+ #include <linux/mod_devicetable.h>
+-#include <linux/pci.h>
++#include <linux/pci-epc.h>
+ 
+ struct pci_epf;
+-enum pci_epc_interface_type;
+ 
+ enum pci_barno {
+ 	NO_BAR = -1,
+@@ -67,16 +66,6 @@ struct pci_epf_ops {
+ 					struct config_group *group);
+ };
+ 
+-/**
+- * struct pci_epf_event_ops - Callbacks for capturing the EPC events
+- * @core_init: Callback for the EPC initialization complete event
+- * @link_up: Callback for the EPC link up event
+- */
+-struct pci_epc_event_ops {
+-	int (*core_init)(struct pci_epf *epf);
+-	int (*link_up)(struct pci_epf *epf);
+-};
+-
+ /**
+  * struct pci_epf_driver - represents the PCI EPF driver
+  * @probe: ops to perform when a new EPF device has been bound to the EPF driver
+-- 
+2.39.2
+

@@ -1,0 +1,72 @@
+From 7939f207c5e298afdd478f424bd8ef71d9585874 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Sat, 4 Feb 2023 10:25:17 +0900
+Subject: [PATCH 09/51] PCI: epf-test: Improve handling of command and status
+ registers
+
+The pci-epf-test driver uses the test register bar memory directly
+to get and execute a test registers set by the RC side and defined
+using a struct pci_epf_test_reg. This direct use relies on a casts of
+the register bar to get a pointer to a struct pci_epf_test_reg to
+execute the test case and sending back the test result through the
+status field of struct pci_epf_test_reg. In practice, the status field
+is always updated before an interrupt is raised in
+pci_epf_test_raise_irq(), to ensure that the RC side sees the updated
+status when receiving the interrupts.
+
+However, such cast-based direct access does not ensure that changes to
+the status register make it to memory, and so visible to the host,
+before an interrupt is raised, thus potentially resulting in the RC host
+not seeing the correct status result for a test.
+
+Avoid this potential problem by using READ_ONCE()/WRITE_ONCE() when
+accessing the command and status fields of a pci_epf_test_reg structure.
+This ensure that a test start (pci_epf_test_cmd_handler() function) and
+completion (with the function pci_epf_test_raise_irq()) achive a correct
+synchronization with the host side mmio register accesses.
+
+Reviewed-by: Manivannan Sadhasivam <mani@kernel.org>
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/endpoint/functions/pci-epf-test.c | 13 +++++++++----
+ 1 file changed, 9 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/pci/endpoint/functions/pci-epf-test.c b/drivers/pci/endpoint/functions/pci-epf-test.c
+index ee90ba3a957b..fa48e9b3c393 100644
+--- a/drivers/pci/endpoint/functions/pci-epf-test.c
++++ b/drivers/pci/endpoint/functions/pci-epf-test.c
+@@ -613,9 +613,14 @@ static void pci_epf_test_raise_irq(struct pci_epf_test *epf_test,
+ 	struct pci_epf *epf = epf_test->epf;
+ 	struct device *dev = &epf->dev;
+ 	struct pci_epc *epc = epf->epc;
++	u32 status = reg->status | STATUS_IRQ_RAISED;
+ 	int count;
+ 
+-	reg->status |= STATUS_IRQ_RAISED;
++	/*
++	 * Set the status before raising the IRQ to ensure that the host sees
++	 * the updated value when it gets the IRQ.
++	 */
++	WRITE_ONCE(reg->status, status);
+ 
+ 	switch (reg->irq_type) {
+ 	case IRQ_TYPE_LEGACY:
+@@ -659,12 +664,12 @@ static void pci_epf_test_cmd_handler(struct work_struct *work)
+ 	enum pci_barno test_reg_bar = epf_test->test_reg_bar;
+ 	struct pci_epf_test_reg *reg = epf_test->reg[test_reg_bar];
+ 
+-	command = reg->command;
++	command = READ_ONCE(reg->command);
+ 	if (!command)
+ 		goto reset_handler;
+ 
+-	reg->command = 0;
+-	reg->status = 0;
++	WRITE_ONCE(reg->command, 0);
++	WRITE_ONCE(reg->status, 0);
+ 
+ 	if (reg->irq_type > IRQ_TYPE_MSIX) {
+ 		dev_err(dev, "Failed to detect IRQ type\n");
+-- 
+2.39.2
+
