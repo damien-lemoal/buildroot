@@ -1,0 +1,37 @@
+From 652aa441f67655cdc705371003dfed3382f8599f Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Thu, 6 Apr 2023 09:53:19 +0900
+Subject: [PATCH 42/43] PCI: rockchip: Fix rockchip_pcie_prog_ep_ob_atu()
+
+Only using the size of a PCI mapping to determine the number of lower
+bits of the host PCI address that must be remapped to the local CPU
+address works only if the host PCI address is aligned to the mapping
+size. For cases where the PCI address is randomly aligned, handling the
+entire PCI address range from pci_addr to pci_addr + size -1 may require
+additional bits of address to be considered.
+
+Fix this by calculating num_pass_bits using an XOR of the PCI mapping
+start and end (included) address as that gives us the highest
+significant bit of the address range changing from the start address.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index 78b073d76a16..9db9b19983fd 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -67,7 +67,7 @@ static void rockchip_pcie_prog_ep_ob_atu(struct rockchip_pcie *rockchip, u8 fn,
+ 					 u32 r, u64 cpu_addr, u64 pci_addr,
+ 					 size_t size)
+ {
+-	u64 sz = 1ULL << fls64(size - 1);
++	u64 sz = 1ULL << fls64(pci_addr ^ (pci_addr + size - 1));
+ 	int num_pass_bits = ilog2(sz);
+ 	u32 addr0, addr1, desc0;
+ 
+-- 
+2.39.2
+

@@ -1,0 +1,58 @@
+From 302a8ff0cf79863c583cf0704b3a3d8e1a4bdd6e Mon Sep 17 00:00:00 2001
+From: Christoph Hellwig <hch@lst.de>
+Date: Fri, 17 Mar 2023 13:00:55 +0900
+Subject: [PATCH 33/43] nvmet: fix Identify Identification Descriptor List
+ handling
+
+The Identification Descriptor List CNS value does not check the CSI
+value, so remove the code trying to handle it.
+
+Signed-off-by: Christoph Hellwig <hch@lst.de>
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/nvme/target/admin-cmd.c | 22 ++--------------------
+ 1 file changed, 2 insertions(+), 20 deletions(-)
+
+diff --git a/drivers/nvme/target/admin-cmd.c b/drivers/nvme/target/admin-cmd.c
+index dee9fcfaf1d1..6e7d2f988c03 100644
+--- a/drivers/nvme/target/admin-cmd.c
++++ b/drivers/nvme/target/admin-cmd.c
+@@ -645,23 +645,6 @@ static void nvmet_execute_identify_desclist(struct nvmet_req *req)
+ 	nvmet_req_complete(req, status);
+ }
+ 
+-static bool nvmet_handle_identify_desclist(struct nvmet_req *req)
+-{
+-	switch (req->cmd->identify.csi) {
+-	case NVME_CSI_NVM:
+-		nvmet_execute_identify_desclist(req);
+-		return true;
+-	case NVME_CSI_ZNS:
+-		if (IS_ENABLED(CONFIG_BLK_DEV_ZONED)) {
+-			nvmet_execute_identify_desclist(req);
+-			return true;
+-		}
+-		return false;
+-	default:
+-		return false;
+-	}
+-}
+-
+ static void nvmet_execute_identify(struct nvmet_req *req)
+ {
+ 	if (!nvmet_check_transfer_len(req, NVME_IDENTIFY_DATA_SIZE))
+@@ -711,9 +694,8 @@ static void nvmet_execute_identify(struct nvmet_req *req)
+ 		}
+ 		break;
+ 	case NVME_ID_CNS_NS_DESC_LIST:
+-		if (nvmet_handle_identify_desclist(req) == true)
+-			return;
+-		break;
++		nvmet_execute_identify_desclist(req);
++		return;
+ 	}
+ 
+ 	nvmet_req_cns_error_complete(req);
+-- 
+2.39.2
+
