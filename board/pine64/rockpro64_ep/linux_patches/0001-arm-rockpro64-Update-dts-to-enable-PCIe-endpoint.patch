@@ -1,0 +1,86 @@
+From d6182af5ea6c3face1350a2afd5618ddfd483df7 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Mon, 9 Jan 2023 14:08:26 +0900
+Subject: [PATCH 1/6] arm: rockpro64: Update dts to enable PCIe endpoint
+
+Modify the rk3399-rockpro64.dtsi file to change the rockpro64 board
+PCIe port from host mode to endpoint mode. Also enable pwm fan and CPU
+thermal.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ .../boot/dts/rockchip/rk3399-rockpro64.dtsi   | 37 ++++++++++++++++++-
+ 1 file changed, 36 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/rockchip/rk3399-rockpro64.dtsi b/arch/arm64/boot/dts/rockchip/rk3399-rockpro64.dtsi
+index 78157521e944..c0ba5b5d6af4 100644
+--- a/arch/arm64/boot/dts/rockchip/rk3399-rockpro64.dtsi
++++ b/arch/arm64/boot/dts/rockchip/rk3399-rockpro64.dtsi
+@@ -82,6 +82,7 @@ fan: pwm-fan {
+ 		#cooling-cells = <2>;
+ 		fan-supply = <&vcc12v_dcin>;
+ 		pwms = <&pwm1 0 50000 0>;
++		status = "okay";
+ 	};
+ 
+ 	sdio_pwrseq: sdio-pwrseq {
+@@ -237,6 +238,38 @@ vdd_log: vdd-log {
+ 		regulator-min-microvolt = <800000>;
+ 		regulator-max-microvolt = <1700000>;
+ 	};
++
++	bus: bus {
++		compatible = "simple-bus";
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges;
++
++		pcie_ep0: pcie_ep@f8000000 {
++			compatible = "rockchip,rk3399-pcie-ep";
++			#address-cells = <3>;
++			#size-cells = <2>;
++			rockchip,max-outbound-regions = <16>;
++			clocks = <&cru ACLK_PCIE>, <&cru ACLK_PERF_PCIE>,
++				 <&cru PCLK_PCIE>, <&cru SCLK_PCIE_PM>;
++			clock-names = "aclk", "aclk-perf",
++				      "hclk", "pm";
++			max-functions = /bits/ 8 <8>;
++			num-lanes = <4>;
++			reg = <0x0 0xfd000000 0x0 0x1000000>, <0x0 0x00000000 0x0 0x20000>;
++			reg-names = "apb-base", "mem-base";
++			resets = <&cru SRST_PCIE_CORE>, <&cru SRST_PCIE_MGMT>,
++				 <&cru SRST_PCIE_MGMT_STICKY>, <&cru SRST_PCIE_PIPE> ,
++				 <&cru SRST_PCIE_PM>, <&cru SRST_P_PCIE>, <&cru SRST_A_PCIE>;
++			reset-names = "core", "mgmt", "mgmt-sticky", "pipe",
++				      "pm", "pclk", "aclk";
++			phys = <&pcie_phy 0>, <&pcie_phy 1>, <&pcie_phy 2>, <&pcie_phy 3>;
++			phy-names = "pcie-phy-0", "pcie-phy-1", "pcie-phy-2", "pcie-phy-3";
++			vpcie12v-supply = <&vcc12v_dcin>;
++			vpcie3v3-supply = <&vcc3v3_pcie>;
++			status = "okay";
++		};
++	};
+ };
+ 
+ &cpu_l0 {
+@@ -264,6 +297,8 @@ &cpu_b1 {
+ };
+ 
+ &cpu_thermal {
++	status = "okay";
++
+ 	trips {
+ 		cpu_warm: cpu_warm {
+ 			temperature = <55000>;
+@@ -669,7 +704,7 @@ &pcie0 {
+ 	pinctrl-0 = <&pcie_perst>;
+ 	vpcie12v-supply = <&vcc12v_dcin>;
+ 	vpcie3v3-supply = <&vcc3v3_pcie>;
+-	status = "okay";
++	status = "disabled";
+ };
+ 
+ &pcie_phy {
+-- 
+2.39.0
+

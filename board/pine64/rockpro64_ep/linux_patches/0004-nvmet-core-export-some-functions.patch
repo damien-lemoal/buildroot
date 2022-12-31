@@ -1,0 +1,45 @@
+From b0302cad83014d9eabd60c85bf9c3370de67055a Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Wed, 11 Jan 2023 18:06:23 +0900
+Subject: [PATCH 4/6] nvmet: core: export some functions
+
+Export the functions nvmet_ns_enable(), nvmet_ns_disable() and
+nvmet_update_cc() as they will be necessary for the PCIe endpoint nvme
+function driver.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/nvme/target/core.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/nvme/target/core.c b/drivers/nvme/target/core.c
+index f66ed13d7c11..5fdb08f80aca 100644
+--- a/drivers/nvme/target/core.c
++++ b/drivers/nvme/target/core.c
+@@ -614,6 +614,7 @@ int nvmet_ns_enable(struct nvmet_ns *ns)
+ 	nvmet_ns_dev_disable(ns);
+ 	goto out_unlock;
+ }
++EXPORT_SYMBOL_GPL(nvmet_ns_enable);
+ 
+ void nvmet_ns_disable(struct nvmet_ns *ns)
+ {
+@@ -655,6 +656,7 @@ void nvmet_ns_disable(struct nvmet_ns *ns)
+ out_unlock:
+ 	mutex_unlock(&subsys->lock);
+ }
++EXPORT_SYMBOL_GPL(nvmet_ns_disable);
+ 
+ void nvmet_ns_free(struct nvmet_ns *ns)
+ {
+@@ -1210,6 +1212,7 @@ void nvmet_update_cc(struct nvmet_ctrl *ctrl, u32 new)
+ 		ctrl->csts &= ~NVME_CSTS_SHST_CMPLT;
+ 	mutex_unlock(&ctrl->lock);
+ }
++EXPORT_SYMBOL_GPL(nvmet_update_cc);
+ 
+ static void nvmet_init_cap(struct nvmet_ctrl *ctrl)
+ {
+-- 
+2.39.0
+
