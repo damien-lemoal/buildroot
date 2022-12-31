@@ -1,0 +1,76 @@
+From d859a54b4091419cd3da4c76406235ddb05ca18d Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Sat, 23 Dec 2023 14:38:29 +0900
+Subject: [PATCH 19/31] PCI: rockchip: Delay endpoint link training
+
+Enabling link training and enabling the endpoint controller
+configuration in rockchip_pcie_ep_probe() is not necessary and can be
+delayed until the endpoint function driver is attached and started
+throught the rockchip_pcie_ep_start() operation.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 13 ++++++-------
+ drivers/pci/controller/pcie-rockchip.c    |  5 +++--
+ 2 files changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index d0359c66e56b..a2ca4306978a 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -461,6 +461,12 @@ static int rockchip_pcie_ep_start(struct pci_epc *epc)
+ 
+ 	rockchip_pcie_write(rockchip, cfg, PCIE_CORE_PHY_FUNC_CFG);
+ 
++	/* Enable configuration and start link training */
++	rockchip_pcie_write(rockchip,
++			    PCIE_CLIENT_LINK_TRAIN_ENABLE |
++			    PCIE_CLIENT_CONF_ENABLE,
++			    PCIE_CLIENT_CONFIG);
++
+ 	return 0;
+ }
+ 
+@@ -566,10 +572,6 @@ static int rockchip_pcie_ep_probe(struct platform_device *pdev)
+ 	if (err)
+ 		goto err_disable_clocks;
+ 
+-	/* Establish the link automatically */
+-	rockchip_pcie_write(rockchip, PCIE_CLIENT_LINK_TRAIN_ENABLE,
+-			    PCIE_CLIENT_CONFIG);
+-
+ 	max_regions = ep->max_regions;
+ 	ep->ob_addr = devm_kcalloc(dev, max_regions, sizeof(*ep->ob_addr),
+ 				   GFP_KERNEL);
+@@ -634,9 +636,6 @@ static int rockchip_pcie_ep_probe(struct platform_device *pdev)
+ 	rockchip_pcie_write(rockchip, cfg_msi,
+ 			    PCIE_EP_CONFIG_BASE + ROCKCHIP_PCIE_EP_MSI_CTRL_REG);
+ 
+-	rockchip_pcie_write(rockchip, PCIE_CLIENT_CONF_ENABLE,
+-			    PCIE_CLIENT_CONFIG);
+-
+ 	return 0;
+ err_epc_mem_exit:
+ 	pci_epc_mem_exit(epc);
+diff --git a/drivers/pci/controller/pcie-rockchip.c b/drivers/pci/controller/pcie-rockchip.c
+index 0ef2e622d36e..dbec700ba9f9 100644
+--- a/drivers/pci/controller/pcie-rockchip.c
++++ b/drivers/pci/controller/pcie-rockchip.c
+@@ -244,11 +244,12 @@ int rockchip_pcie_init_port(struct rockchip_pcie *rockchip)
+ 		rockchip_pcie_write(rockchip, PCIE_CLIENT_GEN_SEL_1,
+ 				    PCIE_CLIENT_CONFIG);
+ 
+-	regs = PCIE_CLIENT_LINK_TRAIN_ENABLE | PCIE_CLIENT_ARI_ENABLE |
++	regs = PCIE_CLIENT_ARI_ENABLE |
+ 	       PCIE_CLIENT_CONF_LANE_NUM(rockchip->lanes);
+ 
+ 	if (rockchip->is_rc)
+-		regs |= PCIE_CLIENT_CONF_ENABLE | PCIE_CLIENT_MODE_RC;
++		regs |= PCIE_CLIENT_LINK_TRAIN_ENABLE |
++			PCIE_CLIENT_CONF_ENABLE | PCIE_CLIENT_MODE_RC;
+ 	else
+ 		regs |= PCIE_CLIENT_CONF_DISABLE | PCIE_CLIENT_MODE_EP;
+ 
+-- 
+2.43.0
+
