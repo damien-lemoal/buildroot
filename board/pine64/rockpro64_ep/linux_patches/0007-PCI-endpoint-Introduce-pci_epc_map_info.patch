@@ -1,0 +1,171 @@
+From 9726bce8160c32448d9dbb4e8b9cb6f8f2eb6021 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Thu, 13 Apr 2023 14:45:40 +0900
+Subject: [PATCH 07/25] PCI: endpoint: Introduce pci_epc_map_info()
+
+Some endpoint controllers have requirements on the alignment of the
+controller physical memory address that must be used to map a RC PCI
+address region. For instance, the rockchip endpoint controller uses
+at most the lower 20 bits of a physical memory address region as the
+lower bits of an RC PCI address. For mapping a PCI address region of
+size bytes starting from pci_addr, the exact number of address bits
+used is the number of address bits changing in the address range
+[pci_addr..pci_addr + size - 1].
+
+For this example, this creates the following constraints:
+1) The offset into the controller physical memory allocated for a
+   mapping depends on the mapping size *and* the starting PCI address
+   for the mapping.
+2) A mapping size cannot exceed the controller windows size (1MB) minus
+   the offset needed into the allocated physical memory, which can end
+   up being a smaller size than the desired mapping size.
+
+Handling these constraints regardless of the controller being used in
+a PCI EP function driver is not possible with the current EPC API as
+it only provides the ->align field in struct pci_epc_features.
+Furthermore, this alignment is static and does not depend on a mapping
+start pci address and size.
+
+Solve this by introducing the function pci_epc_map_info() and the
+endpoint controller operation ->map_info to allow endpoint function
+drivers to obtain the size and the offset into a controller address
+region that must be used to map an RC PCI address region. The size
+of the physical address region provided by pci_epc_map_info() can then
+be used as the size argument for the function pci_epc_mem_alloc_addr().
+The offset into the allocated controller memory can be used to
+correctly handle data transfer. Of note is that pci_epc_map_info() may
+indicate upon return a mapping size that is smaller (but not 0) than the
+requested PCI address region size. For such case, an endpoint function
+driver must handle data transfers in fragments.
+
+The controller operation ->map_info is optional: controllers that do not
+have any address alignment constraint for mapping a RC PCI address
+region do not need to implement this operation. For such controllers,
+pci_epc_map_info() always returns the mapping size as equal
+to the requested size and an offset equal to 0.
+
+The structure pci_epc_map is introduced to represent a mapping start PCI
+address, size and the size and offset into the controller memory needed
+for mapping the PCI address region.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/endpoint/pci-epc-core.c | 49 +++++++++++++++++++++++++++++
+ include/linux/pci-epc.h             | 22 +++++++++++++
+ 2 files changed, 71 insertions(+)
+
+diff --git a/drivers/pci/endpoint/pci-epc-core.c b/drivers/pci/endpoint/pci-epc-core.c
+index 90690056903f..b89a1b869219 100644
+--- a/drivers/pci/endpoint/pci-epc-core.c
++++ b/drivers/pci/endpoint/pci-epc-core.c
+@@ -438,6 +438,55 @@ void pci_epc_unmap_addr(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ }
+ EXPORT_SYMBOL_GPL(pci_epc_unmap_addr);
+ 
++/**
++ * pci_epc_map_info() - Get the offset into and the size of a controller memory
++ *			address needed to map a RC PCI address region
++ * @epc: the EPC device on which address is allocated
++ * @func_no: the physical endpoint function number in the EPC device
++ * @vfunc_no: the virtual endpoint function number in the physical function
++ * @pci_addr: PCI address to which the physical address should be mapped
++ * @size: the size of the mapping starting from @pci_addr
++ * @map: populate here the actual size and offset into the controller memory
++ *       that must be allocated for the mapping
++ *
++ * Invoke the controller map_info operation to obtain the size and the offset
++ * into a controller address region that must be allocated to map @size
++ * bytes of the RC PCI address space starting from @pci_addr. Returns the size
++ * of the mapping that can be handled by the controller in the phys_size field
++ * of @map. This size may be smaller than the requested @size, in which
++ * case, the function driver must handle the mapping using several fragments.
++ * The offset into the controller memory for the mapping is returned using the
++ * phys_ofst field of @map.
++ */
++int pci_epc_map_info(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
++		     u64 pci_addr, size_t size, struct pci_epc_map *map)
++{
++	int ret;
++
++	if (!pci_epc_check_func(epc, func_no, vfunc_no))
++		return -EINVAL;
++
++	if (!size || !map)
++		return -EINVAL;
++
++	map->pci_addr = pci_addr;
++	map->size = size;
++
++	if (!epc->ops->map_info) {
++		/* Assume that the controller has no constraints */
++		map->phys_size = size;
++		map->phys_ofst = 0;
++		return 0;
++	}
++
++	mutex_lock(&epc->lock);
++	ret = epc->ops->map_info(epc, func_no, vfunc_no, map);
++	mutex_unlock(&epc->lock);
++
++	return ret;
++}
++EXPORT_SYMBOL_GPL(pci_epc_map_info);
++
+ /**
+  * pci_epc_map_addr() - map CPU address to PCI address
+  * @epc: the EPC device on which address is allocated
+diff --git a/include/linux/pci-epc.h b/include/linux/pci-epc.h
+index 69e903ce7e60..feb9514a815a 100644
+--- a/include/linux/pci-epc.h
++++ b/include/linux/pci-epc.h
+@@ -36,11 +36,29 @@ pci_epc_interface_string(enum pci_epc_interface_type type)
+ 	}
+ }
+ 
++/**
++ * struct pci_epc_map - information about EPC memory for mapping a RC PCI
++ *                      address region
++ * @pci_addr: start address of the RC PCI region to map
++ * @size: size of the mapping from the start address of the RC PCI region
++ * @phys_size: size of the controller memory needed for the mapping
++ * @phys_ofst: offset into the controller memory needed for the mapping
++ */
++struct pci_epc_map {
++	phys_addr_t	pci_addr;
++	size_t		size;
++
++	size_t		phys_size;
++	phys_addr_t	phys_ofst;
++};
++
+ /**
+  * struct pci_epc_ops - set of function pointers for performing EPC operations
+  * @write_header: ops to populate configuration space header
+  * @set_bar: ops to configure the BAR
+  * @clear_bar: ops to reset the BAR
++ * @map_info: operation to get the size and offset into a controller memory
++ *            window needed to map an RC PCI address region
+  * @map_addr: ops to map CPU address to PCI address
+  * @unmap_addr: ops to unmap CPU address and PCI address
+  * @set_msi: ops to set the requested number of MSI interrupts in the MSI
+@@ -65,6 +83,8 @@ struct pci_epc_ops {
+ 			   struct pci_epf_bar *epf_bar);
+ 	void	(*clear_bar)(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 			     struct pci_epf_bar *epf_bar);
++	int	(*map_info)(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
++			    struct pci_epc_map *map);
+ 	int	(*map_addr)(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 			    phys_addr_t addr, u64 pci_addr, size_t size);
+ 	void	(*unmap_addr)(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+@@ -211,6 +231,8 @@ int pci_epc_set_bar(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 		    struct pci_epf_bar *epf_bar);
+ void pci_epc_clear_bar(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 		       struct pci_epf_bar *epf_bar);
++int pci_epc_map_info(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
++		     u64 pci_addr, size_t size, struct pci_epc_map *map);
+ int pci_epc_map_addr(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 		     phys_addr_t phys_addr,
+ 		     u64 pci_addr, size_t size);
+-- 
+2.41.0
+

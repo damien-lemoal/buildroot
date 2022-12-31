@@ -1,0 +1,32 @@
+From 42471017ced7a8e0d3795ee2f60acdeb381ddcac Mon Sep 17 00:00:00 2001
+From: Wilfred Mallawa <wilfred.mallawa@wdc.com>
+Date: Tue, 25 Jul 2023 18:40:40 +1000
+Subject: [PATCH 17/25] dt-bindings: pci: rockchip,rk3399-pcie-ep: Add ep-gpio
+ property
+
+Describe the `ep-gpio` property which is used to map the PERST input
+signal for endpoint mode.
+
+Signed-off-by: Wilfred Mallawa <wilfred.mallawa@wdc.com>
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ .../devicetree/bindings/pci/rockchip,rk3399-pcie-ep.yaml       | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/pci/rockchip,rk3399-pcie-ep.yaml b/Documentation/devicetree/bindings/pci/rockchip,rk3399-pcie-ep.yaml
+index 6b62f6f58efe..b8a5b567a9af 100644
+--- a/Documentation/devicetree/bindings/pci/rockchip,rk3399-pcie-ep.yaml
++++ b/Documentation/devicetree/bindings/pci/rockchip,rk3399-pcie-ep.yaml
+@@ -30,6 +30,9 @@ properties:
+     maximum: 32
+     default: 32
+ 
++  ep-gpios:
++    description: Input GPIO configured for the PERST signal.
++
+ required:
+   - rockchip,max-outbound-regions
+ 
+-- 
+2.41.0
+

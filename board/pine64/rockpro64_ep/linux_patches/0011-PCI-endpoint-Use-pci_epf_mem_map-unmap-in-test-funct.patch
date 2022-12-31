@@ -1,0 +1,473 @@
+From 21e87b064850e83ff64a6230677f11008cf34312 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Fri, 14 Apr 2023 09:58:04 +0900
+Subject: [PATCH 11/25] PCI: endpoint: Use pci_epf_mem_map/unmap() in test
+ function driver
+
+Modify the endpoint test driver to use the functions pci_epf_mem_map()
+and pci_epf_mem_unmap() for the read, write and copy tests. For each
+test case, the transfer (dma or mmio) are executed in a loop to ensure
+that partial mappings returned by pci_epf_mem_map() are correctly
+handled.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/endpoint/functions/pci-epf-test.c | 366 +++++++++---------
+ 1 file changed, 189 insertions(+), 177 deletions(-)
+
+diff --git a/drivers/pci/endpoint/functions/pci-epf-test.c b/drivers/pci/endpoint/functions/pci-epf-test.c
+index b965bb8dcf83..165b9a6e9fde 100644
+--- a/drivers/pci/endpoint/functions/pci-epf-test.c
++++ b/drivers/pci/endpoint/functions/pci-epf-test.c
+@@ -317,89 +317,90 @@ static void pci_epf_test_print_rate(struct pci_epf_test *epf_test,
+ static void pci_epf_test_copy(struct pci_epf_test *epf_test,
+ 			      struct pci_epf_test_reg *reg)
+ {
+-	int ret;
+-	void __iomem *src_addr;
+-	void __iomem *dst_addr;
+-	phys_addr_t src_phys_addr;
+-	phys_addr_t dst_phys_addr;
++	int ret = 0;
+ 	struct timespec64 start, end;
+ 	struct pci_epf *epf = epf_test->epf;
+ 	struct device *dev = &epf->dev;
+-	struct pci_epc *epc = epf->epc;
+-
+-	src_addr = pci_epc_mem_alloc_addr(epc, &src_phys_addr, reg->size);
+-	if (!src_addr) {
+-		dev_err(dev, "Failed to allocate source address\n");
+-		reg->status = STATUS_SRC_ADDR_INVALID;
+-		ret = -ENOMEM;
+-		goto err;
+-	}
+-
+-	ret = pci_epf_map_addr(epf, src_phys_addr, reg->src_addr, reg->size);
+-	if (ret) {
+-		dev_err(dev, "Failed to map source address\n");
+-		reg->status = STATUS_SRC_ADDR_INVALID;
+-		goto err_src_addr;
+-	}
++	struct pci_epc_map src_map, dst_map;
++	u64 src_addr = reg->src_addr;
++	u64 dst_addr = reg->dst_addr;
++	size_t copy_size = reg->size;
++	ssize_t map_size = 0;
++	void *copy_buf = NULL, *buf;
+ 
+-	dst_addr = pci_epc_mem_alloc_addr(epc, &dst_phys_addr, reg->size);
+-	if (!dst_addr) {
+-		dev_err(dev, "Failed to allocate destination address\n");
+-		reg->status = STATUS_DST_ADDR_INVALID;
+-		ret = -ENOMEM;
+-		goto err_src_map_addr;
+-	}
+-
+-	ret = pci_epf_map_addr(epf, dst_phys_addr, reg->dst_addr, reg->size);
+-	if (ret) {
+-		dev_err(dev, "Failed to map destination address\n");
+-		reg->status = STATUS_DST_ADDR_INVALID;
+-		goto err_dst_addr;
+-	}
+-
+-	ktime_get_ts64(&start);
+ 	if (reg->flags & FLAG_USE_DMA) {
+ 		if (epf_test->dma_private) {
+ 			dev_err(dev, "Cannot transfer data using DMA\n");
+ 			ret = -EINVAL;
+-			goto err_map_addr;
++			goto set_status;
+ 		}
+-
+-		ret = pci_epf_test_data_transfer(epf_test, dst_phys_addr,
+-						 src_phys_addr, reg->size, 0,
+-						 DMA_MEM_TO_MEM);
+-		if (ret)
+-			dev_err(dev, "Data transfer failed\n");
+ 	} else {
+-		void *buf;
+-
+-		buf = kzalloc(reg->size, GFP_KERNEL);
+-		if (!buf) {
++		copy_buf = kzalloc(copy_size, GFP_KERNEL);
++		if (!copy_buf) {
+ 			ret = -ENOMEM;
+-			goto err_map_addr;
++			goto set_status;
+ 		}
+-
+-		memcpy_fromio(buf, src_addr, reg->size);
+-		memcpy_toio(dst_addr, buf, reg->size);
+-		kfree(buf);
++		buf = copy_buf;
+ 	}
+-	ktime_get_ts64(&end);
+-	pci_epf_test_print_rate(epf_test, "COPY", reg->size, &start, &end,
+-				reg->flags & FLAG_USE_DMA);
+ 
+-err_map_addr:
+-	pci_epf_unmap_addr(epf, dst_phys_addr);
++	while (copy_size) {
++		map_size = pci_epf_mem_map(epf, src_addr, copy_size, &src_map);
++		if (map_size < 0) {
++			dev_err(dev, "Failed to map source address\n");
++			reg->status = STATUS_SRC_ADDR_INVALID;
++			ret = map_size;
++			goto free_buf;
++		}
+ 
+-err_dst_addr:
+-	pci_epc_mem_free_addr(epc, dst_phys_addr, dst_addr, reg->size);
++		map_size = pci_epf_mem_map(epf, dst_addr, copy_size, &dst_map);
++		if (map_size < 0) {
++			dev_err(dev, "Failed to map destination address\n");
++			reg->status = STATUS_DST_ADDR_INVALID;
++			ret = map_size;
++			pci_epf_mem_unmap(epf, &src_map);
++			goto free_buf;
++		}
+ 
+-err_src_map_addr:
+-	pci_epf_unmap_addr(epf, src_phys_addr);
++		map_size = min_t(size_t, map_size, src_map.size);
+ 
+-err_src_addr:
+-	pci_epc_mem_free_addr(epc, src_phys_addr, src_addr, reg->size);
++		ktime_get_ts64(&start);
++		if (reg->flags & FLAG_USE_DMA) {
++			ret = pci_epf_test_data_transfer(epf_test,
++					dst_map.phys_addr, src_map.phys_addr,
++					map_size, 0, DMA_MEM_TO_MEM);
++			if (ret) {
++				dev_err(dev, "Data transfer failed\n");
++				goto unmap;
++			}
++		} else {
++			memcpy_fromio(buf, src_map.virt_addr, map_size);
++			memcpy_toio(dst_map.virt_addr, buf, map_size);
++			buf += map_size;
++		}
++		ktime_get_ts64(&end);
+ 
+-err:
++		copy_size -= map_size;
++		src_addr += map_size;
++		dst_addr += map_size;
++
++		pci_epf_mem_unmap(epf, &dst_map);
++		pci_epf_mem_unmap(epf, &src_map);
++		map_size = 0;
++	}
++
++	pci_epf_test_print_rate(epf_test, "COPY", reg->size, &start,
++				&end, reg->flags & FLAG_USE_DMA);
++
++unmap:
++	if (map_size) {
++		pci_epf_mem_unmap(epf, &dst_map);
++		pci_epf_mem_unmap(epf, &src_map);
++	}
++
++free_buf:
++	kfree(copy_buf);
++
++set_status:
+ 	if (!ret)
+ 		reg->status |= STATUS_COPY_SUCCESS;
+ 	else
+@@ -409,81 +410,87 @@ static void pci_epf_test_copy(struct pci_epf_test *epf_test,
+ static void pci_epf_test_read(struct pci_epf_test *epf_test,
+ 			      struct pci_epf_test_reg *reg)
+ {
+-	int ret;
+-	void __iomem *src_addr;
+-	void *buf;
++	int ret = 0;
++	void *src_buf, *buf;
+ 	u32 crc32;
+-	phys_addr_t phys_addr;
++	struct pci_epc_map map;
+ 	phys_addr_t dst_phys_addr;
+ 	struct timespec64 start, end;
+ 	struct pci_epf *epf = epf_test->epf;
+ 	struct device *dev = &epf->dev;
+-	struct pci_epc *epc = epf->epc;
+ 	struct device *dma_dev = epf->epc->dev.parent;
++	u64 src_addr = reg->src_addr;
++	size_t src_size = reg->size;
++	ssize_t map_size = 0;
+ 
+-	src_addr = pci_epc_mem_alloc_addr(epc, &phys_addr, reg->size);
+-	if (!src_addr) {
+-		dev_err(dev, "Failed to allocate address\n");
+-		reg->status = STATUS_SRC_ADDR_INVALID;
++	src_buf = kzalloc(src_size, GFP_KERNEL);
++	if (!src_buf) {
+ 		ret = -ENOMEM;
+-		goto err;
+-	}
+-
+-	ret = pci_epf_map_addr(epf, phys_addr, reg->src_addr, reg->size);
+-	if (ret) {
+-		dev_err(dev, "Failed to map address\n");
+-		reg->status = STATUS_SRC_ADDR_INVALID;
+-		goto err_addr;
++		goto set_status;
+ 	}
++	buf = src_buf;
+ 
+-	buf = kzalloc(reg->size, GFP_KERNEL);
+-	if (!buf) {
+-		ret = -ENOMEM;
+-		goto err_map_addr;
+-	}
++	while (src_size) {
++		map_size = pci_epf_mem_map(epf, src_addr, src_size, &map);
++		if (map_size < 0) {
++			dev_err(dev, "Failed to map address\n");
++			reg->status = STATUS_SRC_ADDR_INVALID;
++			ret = map_size;
++			goto free_buf;
++		}
+ 
+-	if (reg->flags & FLAG_USE_DMA) {
+-		dst_phys_addr = dma_map_single(dma_dev, buf, reg->size,
+-					       DMA_FROM_DEVICE);
+-		if (dma_mapping_error(dma_dev, dst_phys_addr)) {
+-			dev_err(dev, "Failed to map destination buffer addr\n");
+-			ret = -ENOMEM;
+-			goto err_dma_map;
++		if (reg->flags & FLAG_USE_DMA) {
++			dst_phys_addr = dma_map_single(dma_dev, buf, map_size,
++						       DMA_FROM_DEVICE);
++			if (dma_mapping_error(dma_dev, dst_phys_addr)) {
++				dev_err(dev,
++					"Failed to map destination buffer addr\n");
++				ret = -ENOMEM;
++				goto unmap;
++			}
++
++			ktime_get_ts64(&start);
++			ret = pci_epf_test_data_transfer(epf_test,
++					dst_phys_addr, map.phys_addr,
++					map_size, src_addr, DMA_DEV_TO_MEM);
++			if (ret)
++				dev_err(dev, "Data transfer failed\n");
++			ktime_get_ts64(&end);
++
++			dma_unmap_single(dma_dev, dst_phys_addr, map_size,
++					 DMA_FROM_DEVICE);
++
++			if (ret)
++				goto unmap;
++		} else {
++			ktime_get_ts64(&start);
++			memcpy_fromio(buf, map.virt_addr, map_size);
++			ktime_get_ts64(&end);
+ 		}
+ 
+-		ktime_get_ts64(&start);
+-		ret = pci_epf_test_data_transfer(epf_test, dst_phys_addr,
+-						 phys_addr, reg->size,
+-						 reg->src_addr, DMA_DEV_TO_MEM);
+-		if (ret)
+-			dev_err(dev, "Data transfer failed\n");
+-		ktime_get_ts64(&end);
++		src_size -= map_size;
++		src_addr += map_size;
++		buf += map_size;
+ 
+-		dma_unmap_single(dma_dev, dst_phys_addr, reg->size,
+-				 DMA_FROM_DEVICE);
+-	} else {
+-		ktime_get_ts64(&start);
+-		memcpy_fromio(buf, src_addr, reg->size);
+-		ktime_get_ts64(&end);
++		pci_epf_mem_unmap(epf, &map);
++		map_size = 0;
+ 	}
+ 
+-	pci_epf_test_print_rate(epf_test, "READ", reg->size, &start, &end,
+-				reg->flags & FLAG_USE_DMA);
++	pci_epf_test_print_rate(epf_test, "READ", reg->size, &start,
++				&end, reg->flags & FLAG_USE_DMA);
+ 
+-	crc32 = crc32_le(~0, buf, reg->size);
++	crc32 = crc32_le(~0, src_buf, reg->size);
+ 	if (crc32 != reg->checksum)
+ 		ret = -EIO;
+ 
+-err_dma_map:
+-	kfree(buf);
+-
+-err_map_addr:
+-	pci_epf_unmap_addr(epf, phys_addr);
++unmap:
++	if (map_size)
++		pci_epf_mem_unmap(epf, &map);
+ 
+-err_addr:
+-	pci_epc_mem_free_addr(epc, phys_addr, src_addr, reg->size);
++free_buf:
++	kfree(src_buf);
+ 
+-err:
++set_status:
+ 	if (!ret)
+ 		reg->status |= STATUS_READ_SUCCESS;
+ 	else
+@@ -493,70 +500,77 @@ static void pci_epf_test_read(struct pci_epf_test *epf_test,
+ static void pci_epf_test_write(struct pci_epf_test *epf_test,
+ 			       struct pci_epf_test_reg *reg)
+ {
+-	int ret;
+-	void __iomem *dst_addr;
+-	void *buf;
+-	phys_addr_t phys_addr;
++	int ret = 0;
++	void *dst_buf, *buf;
++	struct pci_epc_map map;
+ 	phys_addr_t src_phys_addr;
+ 	struct timespec64 start, end;
+ 	struct pci_epf *epf = epf_test->epf;
+ 	struct device *dev = &epf->dev;
+-	struct pci_epc *epc = epf->epc;
+ 	struct device *dma_dev = epf->epc->dev.parent;
++	u64 dst_addr = reg->dst_addr;
++	size_t dst_size = reg->size;
++	ssize_t map_size = 0;
+ 
+-	dst_addr = pci_epc_mem_alloc_addr(epc, &phys_addr, reg->size);
+-	if (!dst_addr) {
+-		dev_err(dev, "Failed to allocate address\n");
+-		reg->status = STATUS_DST_ADDR_INVALID;
++	dst_buf = kzalloc(dst_size, GFP_KERNEL);
++	if (!dst_buf) {
+ 		ret = -ENOMEM;
+-		goto err;
+-	}
+-
+-	ret = pci_epf_map_addr(epf, phys_addr, reg->dst_addr, reg->size);
+-	if (ret) {
+-		dev_err(dev, "Failed to map address\n");
+-		reg->status = STATUS_DST_ADDR_INVALID;
+-		goto err_addr;
+-	}
+-
+-	buf = kzalloc(reg->size, GFP_KERNEL);
+-	if (!buf) {
+-		ret = -ENOMEM;
+-		goto err_map_addr;
+-	}
+-
+-	get_random_bytes(buf, reg->size);
+-	reg->checksum = crc32_le(~0, buf, reg->size);
+-
+-	if (reg->flags & FLAG_USE_DMA) {
+-		src_phys_addr = dma_map_single(dma_dev, buf, reg->size,
+-					       DMA_TO_DEVICE);
+-		if (dma_mapping_error(dma_dev, src_phys_addr)) {
+-			dev_err(dev, "Failed to map source buffer addr\n");
+-			ret = -ENOMEM;
+-			goto err_dma_map;
++		goto set_status;
++	}
++	get_random_bytes(dst_buf, dst_size);
++	reg->checksum = crc32_le(~0, dst_buf, dst_size);
++	buf = dst_buf;
++
++	while (dst_size) {
++		map_size = pci_epf_mem_map(epf, dst_addr, dst_size, &map);
++		if (map_size < 0) {
++			dev_err(dev, "Failed to map address\n");
++			reg->status = STATUS_DST_ADDR_INVALID;
++			ret = map_size;
++			goto free_buf;
+ 		}
+ 
+-		ktime_get_ts64(&start);
++		if (reg->flags & FLAG_USE_DMA) {
++			src_phys_addr = dma_map_single(dma_dev, buf, map_size,
++						       DMA_TO_DEVICE);
++			if (dma_mapping_error(dma_dev, src_phys_addr)) {
++				dev_err(dev,
++					"Failed to map source buffer addr\n");
++				ret = -ENOMEM;
++				goto unmap;
++			}
++
++			ktime_get_ts64(&start);
++
++			ret = pci_epf_test_data_transfer(epf_test,
++						map.phys_addr, src_phys_addr,
++						map_size, dst_addr,
++						DMA_MEM_TO_DEV);
++			if (ret)
++				dev_err(dev, "Data transfer failed\n");
++			ktime_get_ts64(&end);
++
++			dma_unmap_single(dma_dev, src_phys_addr, map_size,
++					 DMA_TO_DEVICE);
++
++			if (ret)
++				goto unmap;
++		} else {
++			ktime_get_ts64(&start);
++			memcpy_toio(map.virt_addr, buf, map_size);
++			ktime_get_ts64(&end);
++		}
+ 
+-		ret = pci_epf_test_data_transfer(epf_test, phys_addr,
+-						 src_phys_addr, reg->size,
+-						 reg->dst_addr,
+-						 DMA_MEM_TO_DEV);
+-		if (ret)
+-			dev_err(dev, "Data transfer failed\n");
+-		ktime_get_ts64(&end);
++		dst_size -= map_size;
++		dst_addr += map_size;
++		buf += map_size;
+ 
+-		dma_unmap_single(dma_dev, src_phys_addr, reg->size,
+-				 DMA_TO_DEVICE);
+-	} else {
+-		ktime_get_ts64(&start);
+-		memcpy_toio(dst_addr, buf, reg->size);
+-		ktime_get_ts64(&end);
++		pci_epf_mem_unmap(epf, &map);
++		map_size = 0;
+ 	}
+ 
+-	pci_epf_test_print_rate(epf_test, "WRITE", reg->size, &start, &end,
+-				reg->flags & FLAG_USE_DMA);
++	pci_epf_test_print_rate(epf_test, "WRITE", reg->size, &start,
++				&end, reg->flags & FLAG_USE_DMA);
+ 
+ 	/*
+ 	 * wait 1ms inorder for the write to complete. Without this delay L3
+@@ -564,16 +578,14 @@ static void pci_epf_test_write(struct pci_epf_test *epf_test,
+ 	 */
+ 	usleep_range(1000, 2000);
+ 
+-err_dma_map:
+-	kfree(buf);
+-
+-err_map_addr:
+-	pci_epf_unmap_addr(epf, phys_addr);
++unmap:
++	if (map_size)
++		pci_epf_mem_unmap(epf, &map);
+ 
+-err_addr:
+-	pci_epc_mem_free_addr(epc, phys_addr, dst_addr, reg->size);
++free_buf:
++	kfree(dst_buf);
+ 
+-err:
++set_status:
+ 	if (!ret)
+ 		reg->status |= STATUS_WRITE_SUCCESS;
+ 	else
+-- 
+2.41.0
+

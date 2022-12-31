@@ -1,0 +1,354 @@
+#!/bin/sh
+
+cmd="$(basename "$0")"
+
+FUNC="pci_epf_nvme.0"
+subsys="${FUNC}.nqn"
+nrq=4
+debug=0
+mmio=0
+bufferedio=0
+
+transport="loop"
+looppath="/dev/sda"
+
+tcpaddr=""
+tcpport=""
+
+ctrlopts=""
+
+function exit_failed()
+{
+	echo "$1"
+	exit 1
+}
+
+function usage()
+{
+	echo "Usage:"
+	echo "    ${cmd} [-h | --help]"
+	echo "    ${cmd} [options] start"
+	echo "    ${cmd} stop"
+	echo "Start command options:"
+	echo "  --debug-epf                    : Turn on test epf kernel debug messages"
+	echo "  --debug-nvme                   : Turn on nvme kernel debug messages"
+	echo "  --debug-pci                    : Turn on pci controller kernel debug messages"
+	echo "  -d | --debug                   : Turn on epf, nvme and pci kernel debug messages"
+	echo "  -m | --mmio                    : Force mmio transfers (disable DMA)"
+	echo "  -b | --buffered-io             : Used buffered IOs on the target."
+	echo "  -q | --nr-io-queues <num>      : Set maximum number of I/O queues."
+	echo "  -l | --loop <path>             : Connect to file or block device nvme_loop target."
+	echo "  -t | --tcp <addr> <port> <nqn> : Connect to nvme_tcp target."
+}
+
+# Check options
+while [ "${1#-}" != "$1" ]; do
+	case "$1" in
+	-h | --help)
+		usage
+		exit 0
+		;;
+	--debug-epf)
+		debug_epf=1
+		;;
+	--debug-nvme)
+		debug_epf=1
+		;;
+	--debug-pci)
+		debug_pci=1
+		;;
+	-d | --debug)
+		debug_epf=1
+		debug_nvme=1
+		debug_pci=1
+		;;
+	-m | --mmio)
+		mmio=1
+		;;
+	-b | --buffered-io)
+		bufferedio=1
+		;;
+	-q | --nr-io-queues)
+		shift
+		nrq=$1
+		;;
+	-l | --loop)
+		transport="loop"
+		shift
+		looppath="$1"
+		;;
+	-t | --tcp)
+		transport="tcp"
+		shift
+		tcpaddr="$1"
+		shift
+		tcpport="$1"
+		shift
+		subsys="$1"
+		;;
+	-*)
+		echo "Unknow option $1"
+		exit 1
+		;;
+	esac
+	shift
+done
+
+if [ "$1" == "" ]; then
+	usage
+	exit 1
+fi
+
+if [ "${transport}" != "loop" ] && [ "${transport}" != "tcp" ]; then
+	echo "Unknown transport"
+	exit 1
+fi
+
+if [ ${nrq} -le 0 ]; then
+	echo "Invalid maximum number of I/O queues."
+	exit 1
+fi
+
+action="$1"
+
+function nvme_setup_loop()
+{
+	local port="1"
+	local ns="1"
+
+	echo "Creating NVMe loop subsystem ${subsys}, target ${looppath}"
+
+	echo "    Loading nvme_loop"
+	modprobe nvme_loop || \
+		exit_failed "Load nvme_loop failed"
+
+	# Create the subsystem
+	echo "    Creating subsystem ${subsys}"
+	cd /sys/kernel/config/nvmet/subsystems
+	mkdir "${subsys}"
+
+	echo -n "Linux pci_epf" > ${subsys}/attr_model
+	echo 1 > ${subsys}/attr_allow_any_host
+	echo 4 > ${subsys}/attr_qid_max
+
+	# Create a namespace
+	echo "    Creating namespace 1"
+	nsdir="${subsys}/namespaces/${ns}"
+	mkdir "${nsdir}"
+	echo -n "${looppath}" > "${nsdir}/device_path"
+
+	if [ "${bufferedio}" == "1" ]; then
+		echo "    Enabling buffered IO"
+		echo "1" > "${nsdir}/buffered_io" || \
+			exit_failed "Enabling buffered IO failed"
+	fi
+
+	echo 1 > "${nsdir}/enable"
+
+	# Create an NVMe port
+	echo "    Creating port 1"
+	cd /sys/kernel/config/nvmet/ports
+	mkdir "${port}"
+	echo -n "loop" > ${port}/addr_trtype
+
+	ln -s /sys/kernel/config/nvmet/subsystems/${subsys} \
+        	/sys/kernel/config/nvmet/ports/${port}/subsystems/${subsys}
+
+	ctrlopts="transport=loop"
+}
+
+function nvme_teardown_loop()
+{
+	local port="1"
+	local ns="1"
+	local nsdir="${subsys}/namespaces/${ns}"
+
+	echo "Deleting NVMe loop subsystem ${subsys}, target ${looppath}"
+
+	echo 0 > "${nsdir}/enable"
+
+       	rm /sys/kernel/config/nvmet/ports/${port}/subsystems/${subsys} || \
+		exit_failed "Detach subsystem ${subsys} from port ${port} failed"
+
+       	rmdir /sys/kernel/config/nvmet/ports/${port} || \
+		exit_failed "Delete port ${port} failed"
+
+	rmdir "${nsdir}" || \
+		exit_failed "Delete subsystem ${subsys} namespace ${ns} failed"
+
+	rmdir "/sys/kernel/config/nvmet/subsystems/${subsys}" || \
+		exit_failed "Delete subsystem ${subsys} failed"
+
+	echo "    Removing nvme_loop"
+	rmmod nvme_loop || \
+		exit_failed "Remove nvme_loop failed"
+	echo "    Removing nvmet"
+	rmmod nvmet || \
+		exit_failed "Remove nvmet failed"
+}
+
+function nvme_setup_tcp()
+{
+	echo "Connecting to NVMe tcp subsystem ${subsys}, addr ${tcpaddr}:${tcpport}"
+
+	echo "    Loading nvme_tcp"
+	modprobe nvme_tcp|| \
+		exit_failed "Load nvme_tcp failed"
+
+	ctrlopts="transport=tcp,traddr=${tcpaddr},trsvcid=${tcpport}"
+}
+
+function nvme_teardown_tcp()
+{
+	echo "    Removing nvme_tcp"
+	rmmod nvme_tcp || \
+		exit_failed "Remove nvme_tcp failed"
+	echo "    Removing nvmet_tcp"
+	rmmod nvmet_tcp || \
+		exit_failed "Remove nvmet_tcp failed"
+	echo "    Removing nvmet"
+	rmmod nvmet || \
+		exit_failed "Remove nvmet failed"
+}
+
+function nvme_epf_start()
+{
+	# Load modules
+	echo "Loading pci-epf-nvme"
+	modprobe pci-epf-nvme || \
+		exit_failed "Load pci-epf-nvme failed"
+
+	# Enable pr_debug
+	if [ "${debug_epf}" == "1" ]; then
+		echo 8 > "/proc/sys/kernel/printk"
+		echo -n 'module nvmet +p;' > \
+			"/sys/kernel/debug/dynamic_debug/control"
+		echo -n 'module pci_epf_nvme +p;' > \
+			"/sys/kernel/debug/dynamic_debug/control"
+	fi
+
+	if [ "${debug_nvme}" == "1" ]; then
+		echo 8 > "/proc/sys/kernel/printk"
+		echo -n 'module nvmet +p;' > \
+			"/sys/kernel/debug/dynamic_debug/control"
+		echo -n 'module nvme_loop +p;' > \
+			"/sys/kernel/debug/dynamic_debug/control"
+	fi
+
+	if [ "${debug_pci}" == "1" ]; then
+		echo 8 > "/proc/sys/kernel/printk"
+		echo -n 'file drivers/pci/controller/pcie-rockchip-ep.c +p;' > \
+			"/sys/kernel/debug/dynamic_debug/control"
+	fi
+
+	# Setup the NVMe fabrics host controller.
+	if [ "${transport}" == "loop" ]; then
+		nvme_setup_loop || \
+			exit_failed "Setup NVMe loop controller failed"
+	else
+		nvme_setup_tcp || \
+			exit_failed "Setup NVMe tcp controller failed"
+	fi
+
+	# Check controller
+	cd /sys/kernel/config/pci_ep || \
+		exit_failed "Missing PCI-EP"
+
+	controller="$(find controllers -name "*pcie*")"
+	if [ -z "${controller}" ]; then
+		exit_failed "PCI EP Controller not found"
+	fi
+
+	# Setup the NVMe endpoint function
+	echo "Creating NVMe endpoint function ${FUNC}..."
+	mkdir "functions/pci_epf_nvme/${FUNC}" || \
+		exit_failed "Create ${FUNK} failed"
+	sleep 0.5
+
+	echo "    Set Vendor ID to Sandisk Corp (0x15b7)"
+	echo 0x15b7 > "functions/pci_epf_nvme/${FUNC}/vendorid" || \
+		exit_failed "Set vendorid failed"
+
+	echo "    Set Device ID to dummy 0x5fff"
+	echo 0x5fff > "functions/pci_epf_nvme/${FUNC}/deviceid" || \
+		exit_failed "Set deviceid failed"
+
+	echo "    Set MSI interrupts"
+	echo 32 > "functions/pci_epf_nvme/${FUNC}/msi_interrupts" || \
+		exit_failed "Set msi_interrupts failed"
+
+	if [ "${mmio}" == "1" ]; then
+		echo "    Disabling DMA"
+		echo "0" > "functions/pci_epf_nvme/${FUNC}/nvme/dma_enable" || \
+			exit_failed "Disable DMA failed"
+	fi
+
+	echo "    Set NVMe controller options"
+	echo -n "${ctrlopts},nqn=${subsys},nr_io_queues=${nrq}" > \
+		"functions/pci_epf_nvme/${FUNC}/nvme/ctrl_opts" || \
+		exit_failed "Set NVMe controller options failed"
+
+	# Start the NVMe endpoint function
+	echo "Attaching NVMe endpoint function to PCI EP controller ${controller}..."
+	ln -s "functions/pci_epf_nvme/${FUNC}" "${controller}/" || \
+		exit_failed "Attach function ${FUNC} to controller failed"
+
+	echo "Starting the PCI controller..."
+	echo 1 > "${controller}/start" || \
+		exit_failed "Start the PCI EP controller failed"
+}
+
+function nvme_epf_stop()
+{
+	# Check controller
+	cd /sys/kernel/config/pci_ep || \
+		exit_failed "Missing PCI-EP"
+
+	controller="$(find controllers -name "*pcie*")"
+	if [ -z "${controller}" ]; then
+		exit_failed "PCI EP Controller not found"
+	fi
+
+	# Check target transport
+	loop=$(cat "functions/pci_epf_nvme/${FUNC}/nvme/ctrl_opts" | \
+		grep -c loop)
+	if [ loop -ne 0 ]; then
+		transport="loop"
+	else
+		transport="tcp"
+	fi
+
+	echo "Stopping the PCI controller"
+	echo 0 > "${controller}/start" || \
+		exit_failed "Stop the PCI EP controller failed"
+
+	echo "Detaching NVMe endpoint function from PCI EP controller ${controller}..."
+	rm "${controller}/${FUNC}" || \
+		exit_failed "Detach function ${FUNC} from controller failed"
+
+	echo "Destroying NVMe endpoint function ${FUNC}..."
+	rmdir "functions/pci_epf_nvme/${FUNC}" || \
+		exit_failed "Remove ${FUNC} failed"
+
+	rmmod pci-epf-nvme
+
+	if [ "${transport}" == "loop" ]; then
+		nvme_teardown_loop
+	else
+		nvme_teardown_tcp
+	fi
+}
+
+case "${action}" in
+start)
+	nvme_epf_start
+	;;
+stop)
+	nvme_epf_stop
+	;;
+*)
+	echo "Unknow action ${action}"
+	exit 1
+	;;
+esac
+
