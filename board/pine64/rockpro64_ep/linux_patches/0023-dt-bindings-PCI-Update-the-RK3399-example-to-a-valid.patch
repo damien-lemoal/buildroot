@@ -1,0 +1,45 @@
+From 29ad6beac08a24e51cf46b84ca4eb8bdbcefaa3a Mon Sep 17 00:00:00 2001
+From: Rick Wertenbroek <rick.wertenbroek@gmail.com>
+Date: Mon, 17 Apr 2023 11:26:24 +0200
+Subject: [PATCH 23/44] dt-bindings: PCI: Update the RK3399 example to a valid
+ one
+
+Update the example in the documentation to a valid example.
+Address for mem-base was invalid, it pointed to address
+0x8000'0000 which is the upper region of the DDR which
+is not necessarily populated depending on the board.
+This address should point to the base of the memory
+window region of the controller which is 0xfa00'0000.
+Add missing pinctrl.
+
+Signed-off-by: Rick Wertenbroek <rick.wertenbroek@gmail.com>
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ .../devicetree/bindings/pci/rockchip,rk3399-pcie-ep.yaml      | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/Documentation/devicetree/bindings/pci/rockchip,rk3399-pcie-ep.yaml b/Documentation/devicetree/bindings/pci/rockchip,rk3399-pcie-ep.yaml
+index 88386a6d7011..6b62f6f58efe 100644
+--- a/Documentation/devicetree/bindings/pci/rockchip,rk3399-pcie-ep.yaml
++++ b/Documentation/devicetree/bindings/pci/rockchip,rk3399-pcie-ep.yaml
+@@ -47,7 +47,7 @@ examples:
+ 
+         pcie-ep@f8000000 {
+             compatible = "rockchip,rk3399-pcie-ep";
+-            reg = <0x0 0xfd000000 0x0 0x1000000>, <0x0 0x80000000 0x0 0x20000>;
++            reg = <0x0 0xfd000000 0x0 0x1000000>, <0x0 0xfa000000 0x0 0x2000000>;
+             reg-names = "apb-base", "mem-base";
+             clocks = <&cru ACLK_PCIE>, <&cru ACLK_PERF_PCIE>,
+               <&cru PCLK_PCIE>, <&cru SCLK_PCIE_PM>;
+@@ -63,6 +63,8 @@ examples:
+             phys = <&pcie_phy 0>, <&pcie_phy 1>, <&pcie_phy 2>, <&pcie_phy 3>;
+             phy-names = "pcie-phy-0", "pcie-phy-1", "pcie-phy-2", "pcie-phy-3";
+             rockchip,max-outbound-regions = <16>;
++            pinctrl-names = "default";
++            pinctrl-0 = <&pcie_clkreqnb_cpm>;
+         };
+     };
+ ...
+-- 
+2.41.0
+

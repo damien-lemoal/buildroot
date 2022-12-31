@@ -1,0 +1,38 @@
+From ca4575533ee20bbb30e6f28e9bf2826d3cc6ace3 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Sat, 15 Apr 2023 09:29:44 +0900
+Subject: [PATCH 03/44] PCI: epf-test: Fix DMA transfer completion
+ initialization
+
+Re-initialize the transfer_complete DMA transfer completion before
+calling tx_submit(), to avoid seeing the DMA transfer complete before
+the completion is initialized, thus potentially losing the completion
+notification.
+
+Fixes: 8353813c88ef ("PCI: endpoint: Enable DMA tests for endpoints with DMA capabilities")
+Cc: stable@vger.kernel.org
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+Reviewed-by: Manivannan Sadhasivam <mani@kernel.org>
+---
+ drivers/pci/endpoint/functions/pci-epf-test.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/pci/endpoint/functions/pci-epf-test.c b/drivers/pci/endpoint/functions/pci-epf-test.c
+index 0f9d2ec822ac..d65419735d2e 100644
+--- a/drivers/pci/endpoint/functions/pci-epf-test.c
++++ b/drivers/pci/endpoint/functions/pci-epf-test.c
+@@ -151,10 +151,10 @@ static int pci_epf_test_data_transfer(struct pci_epf_test *epf_test,
+ 		return -EIO;
+ 	}
+ 
++	reinit_completion(&epf_test->transfer_complete);
+ 	tx->callback = pci_epf_test_dma_callback;
+ 	tx->callback_param = epf_test;
+ 	cookie = tx->tx_submit(tx);
+-	reinit_completion(&epf_test->transfer_complete);
+ 
+ 	ret = dma_submit_error(cookie);
+ 	if (ret) {
+-- 
+2.41.0
+
