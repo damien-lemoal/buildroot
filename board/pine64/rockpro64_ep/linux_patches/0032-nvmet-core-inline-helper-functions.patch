@@ -1,0 +1,151 @@
+From 3c4aeef4e963ee3a4a5c0dca5657ef0aaac55eae Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Wed, 25 Jan 2023 16:43:19 +0900
+Subject: [PATCH 32/34] nvmet: core: inline helper functions
+
+Change the definition of several small functions to be inline to allow
+their use from other drivers. The functions changed are:
+nvmet_get_log_page_len(), nvmet_feat_data_len(), nvmet_cc_mps(),
+nvmet_cc_iosqes() and nvmet_cc_iocqes().
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/nvme/target/admin-cmd.c | 23 -------------------
+ drivers/nvme/target/core.c      | 15 -------------
+ drivers/nvme/target/nvmet.h     | 39 ++++++++++++++++++++++++++++++++-
+ 3 files changed, 38 insertions(+), 39 deletions(-)
+
+diff --git a/drivers/nvme/target/admin-cmd.c b/drivers/nvme/target/admin-cmd.c
+index 80099df37314..dee9fcfaf1d1 100644
+--- a/drivers/nvme/target/admin-cmd.c
++++ b/drivers/nvme/target/admin-cmd.c
+@@ -12,29 +12,6 @@
+ #include <asm/unaligned.h>
+ #include "nvmet.h"
+ 
+-u32 nvmet_get_log_page_len(struct nvme_command *cmd)
+-{
+-	u32 len = le16_to_cpu(cmd->get_log_page.numdu);
+-
+-	len <<= 16;
+-	len += le16_to_cpu(cmd->get_log_page.numdl);
+-	/* NUMD is a 0's based value */
+-	len += 1;
+-	len *= sizeof(u32);
+-
+-	return len;
+-}
+-
+-static u32 nvmet_feat_data_len(struct nvmet_req *req, u32 cdw10)
+-{
+-	switch (cdw10 & 0xff) {
+-	case NVME_FEAT_HOST_ID:
+-		return sizeof(req->sq->ctrl->hostid);
+-	default:
+-		return 0;
+-	}
+-}
+-
+ u64 nvmet_get_log_page_offset(struct nvme_command *cmd)
+ {
+ 	return le64_to_cpu(cmd->get_log_page.lpo);
+diff --git a/drivers/nvme/target/core.c b/drivers/nvme/target/core.c
+index 0689a033905b..a488d08904b9 100644
+--- a/drivers/nvme/target/core.c
++++ b/drivers/nvme/target/core.c
+@@ -1113,11 +1113,6 @@ static inline u8 nvmet_cc_css(u32 cc)
+ 	return (cc >> NVME_CC_CSS_SHIFT) & 0x7;
+ }
+ 
+-static inline u8 nvmet_cc_mps(u32 cc)
+-{
+-	return (cc >> NVME_CC_MPS_SHIFT) & 0xf;
+-}
+-
+ static inline u8 nvmet_cc_ams(u32 cc)
+ {
+ 	return (cc >> NVME_CC_AMS_SHIFT) & 0x7;
+@@ -1128,16 +1123,6 @@ static inline u8 nvmet_cc_shn(u32 cc)
+ 	return (cc >> NVME_CC_SHN_SHIFT) & 0x3;
+ }
+ 
+-static inline u8 nvmet_cc_iosqes(u32 cc)
+-{
+-	return (cc >> NVME_CC_IOSQES_SHIFT) & 0xf;
+-}
+-
+-static inline u8 nvmet_cc_iocqes(u32 cc)
+-{
+-	return (cc >> NVME_CC_IOCQES_SHIFT) & 0xf;
+-}
+-
+ static inline bool nvmet_css_supported(u8 cc_css)
+ {
+ 	switch (cc_css << NVME_CC_CSS_SHIFT) {
+diff --git a/drivers/nvme/target/nvmet.h b/drivers/nvme/target/nvmet.h
+index 89bedfcd974c..41e5c4bb6ae2 100644
+--- a/drivers/nvme/target/nvmet.h
++++ b/drivers/nvme/target/nvmet.h
+@@ -520,7 +520,19 @@ u16 nvmet_copy_from_sgl(struct nvmet_req *req, off_t off, void *buf,
+ 		size_t len);
+ u16 nvmet_zero_sgl(struct nvmet_req *req, off_t off, size_t len);
+ 
+-u32 nvmet_get_log_page_len(struct nvme_command *cmd);
++static inline u32 nvmet_get_log_page_len(struct nvme_command *cmd)
++{
++	u32 len = le16_to_cpu(cmd->get_log_page.numdu);
++
++	len <<= 16;
++	len += le16_to_cpu(cmd->get_log_page.numdl);
++	/* NUMD is a 0's based value */
++	len += 1;
++	len *= sizeof(u32);
++
++	return len;
++}
++
+ u64 nvmet_get_log_page_offset(struct nvme_command *cmd);
+ 
+ extern struct list_head *nvmet_ports;
+@@ -587,6 +599,21 @@ void nvmet_bdev_execute_zone_mgmt_recv(struct nvmet_req *req);
+ void nvmet_bdev_execute_zone_mgmt_send(struct nvmet_req *req);
+ void nvmet_bdev_execute_zone_append(struct nvmet_req *req);
+ 
++static inline u8 nvmet_cc_mps(u32 cc)
++{
++	return (cc >> NVME_CC_MPS_SHIFT) & 0xf;
++}
++
++static inline u8 nvmet_cc_iosqes(u32 cc)
++{
++	return (cc >> NVME_CC_IOSQES_SHIFT) & 0xf;
++}
++
++static inline u8 nvmet_cc_iocqes(u32 cc)
++{
++	return (cc >> NVME_CC_IOCQES_SHIFT) & 0xf;
++}
++
+ static inline u32 nvmet_rw_data_len(struct nvmet_req *req)
+ {
+ 	return ((u32)le16_to_cpu(req->cmd->rw.length) + 1) <<
+@@ -701,6 +728,16 @@ static inline void nvmet_req_bio_put(struct nvmet_req *req, struct bio *bio)
+ 		bio_put(bio);
+ }
+ 
++static inline u32 nvmet_feat_data_len(struct nvmet_req *req, u32 cdw10)
++{
++	switch (cdw10 & 0xff) {
++	case NVME_FEAT_HOST_ID:
++		return sizeof(req->sq->ctrl->hostid);
++	default:
++		return 0;
++	}
++}
++
+ #ifdef CONFIG_NVME_TARGET_AUTH
+ void nvmet_execute_auth_send(struct nvmet_req *req);
+ void nvmet_execute_auth_receive(struct nvmet_req *req);
+-- 
+2.39.2
+

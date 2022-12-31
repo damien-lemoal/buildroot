@@ -1,0 +1,48 @@
+From aeafbfd4dabcba4cc7d62327b1904a5b6379213f Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Sat, 4 Feb 2023 17:57:09 +0900
+Subject: [PATCH 13/34] misc: pci_endpoint_test: Free IRQs before removing the
+ device
+
+In pci_endpoint_test_remove(), freeing the IRQs after removing the
+device creates a small race window for IRQs to be received with the test
+device memory already released, causing the IRQ handler to access
+invalid memory, resulting in an oops.
+
+Free the device IRQs before removing the device to avoid this issue.
+
+Fixes: e03327122e2c ("pci_endpoint_test: Add 2 ioctl commands")
+Cc: stable@vger.kernel.org
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Reviewed-by: Manivannan Sadhasivam <mani@kernel.org>
+---
+ drivers/misc/pci_endpoint_test.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/misc/pci_endpoint_test.c b/drivers/misc/pci_endpoint_test.c
+index a7244de081ec..01235236e9bc 100644
+--- a/drivers/misc/pci_endpoint_test.c
++++ b/drivers/misc/pci_endpoint_test.c
+@@ -938,6 +938,9 @@ static void pci_endpoint_test_remove(struct pci_dev *pdev)
+ 	if (id < 0)
+ 		return;
+ 
++	pci_endpoint_test_release_irq(test);
++	pci_endpoint_test_free_irq_vectors(test);
++
+ 	misc_deregister(&test->miscdev);
+ 	kfree(misc_device->name);
+ 	kfree(test->name);
+@@ -947,9 +950,6 @@ static void pci_endpoint_test_remove(struct pci_dev *pdev)
+ 			pci_iounmap(pdev, test->bar[bar]);
+ 	}
+ 
+-	pci_endpoint_test_release_irq(test);
+-	pci_endpoint_test_free_irq_vectors(test);
+-
+ 	pci_release_regions(pdev);
+ 	pci_disable_device(pdev);
+ }
+-- 
+2.39.2
+

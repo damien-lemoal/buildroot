@@ -1,0 +1,42 @@
+From bc8e4507e36f9438decaae147eb89303e02d285c Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Sat, 4 Feb 2023 18:03:18 +0900
+Subject: [PATCH 15/34] misc: pci_endpoint_test: Do not write status in IRQ
+ handler
+
+pci_endpoint_test_irqhandler() always rewrites the status register when
+an IRQ is raised, either as-is if STATUS_IRQ_RAISED is not set, or with
+STATUS_IRQ_RAISED cleared if that flag is set. The first case creates a
+race window with the endpoint side, meaning that the host side test
+driver may end up reading what it just wrote, thus loosing the real
+status as set by the endpoint side before raising the next interrupt.
+This can prevent detecting that the STATUS_IRQ_RAISED flag was set by
+the endpoint.
+
+Remove this race window by not clearing the STATUS_IRQ_RAISED status
+flag and not rewriting that register for every IRQ received.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Reviewed-by: Manivannan Sadhasivam <mani@kernel.org>
+---
+ drivers/misc/pci_endpoint_test.c | 3 ---
+ 1 file changed, 3 deletions(-)
+
+diff --git a/drivers/misc/pci_endpoint_test.c b/drivers/misc/pci_endpoint_test.c
+index 24efe3b88a1f..afd2577261f8 100644
+--- a/drivers/misc/pci_endpoint_test.c
++++ b/drivers/misc/pci_endpoint_test.c
+@@ -159,10 +159,7 @@ static irqreturn_t pci_endpoint_test_irqhandler(int irq, void *dev_id)
+ 	if (reg & STATUS_IRQ_RAISED) {
+ 		test->last_irq = irq;
+ 		complete(&test->irq_raised);
+-		reg &= ~STATUS_IRQ_RAISED;
+ 	}
+-	pci_endpoint_test_writel(test, PCI_ENDPOINT_TEST_STATUS,
+-				 reg);
+ 
+ 	return IRQ_HANDLED;
+ }
+-- 
+2.39.2
+

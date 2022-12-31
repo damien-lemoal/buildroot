@@ -1,0 +1,108 @@
+From d791beb83940f81f9d939500c3d83c2d086d43d9 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Tue, 7 Mar 2023 11:26:12 +0900
+Subject: [PATCH 06/34] PCI: epf-test: Simplify read/write/copy test functions
+
+The function pci_epf_test_cmd_handler() casts the register bar to a
+struct pci_epf_test_reg to determine the command sent by the host and
+execute the test function accordingly. So there is no need for doing
+this cast again in each of the read, write and copy test functions. We
+can simply pass the reg pointer as an argument to the functions
+pci_epf_test_write(), pci_epf_test_read() and pci_epf_test_copy().
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/endpoint/functions/pci-epf-test.c | 21 ++++++++-----------
+ 1 file changed, 9 insertions(+), 12 deletions(-)
+
+diff --git a/drivers/pci/endpoint/functions/pci-epf-test.c b/drivers/pci/endpoint/functions/pci-epf-test.c
+index 3dce9827bd2a..1fc245d79a8e 100644
+--- a/drivers/pci/endpoint/functions/pci-epf-test.c
++++ b/drivers/pci/endpoint/functions/pci-epf-test.c
+@@ -327,7 +327,8 @@ static void pci_epf_test_print_rate(const char *ops, u64 size,
+ 		(u64)ts.tv_sec, (u32)ts.tv_nsec, rate / 1024);
+ }
+ 
+-static int pci_epf_test_copy(struct pci_epf_test *epf_test)
++static int pci_epf_test_copy(struct pci_epf_test *epf_test,
++			     struct pci_epf_test_reg *reg)
+ {
+ 	int ret;
+ 	bool use_dma;
+@@ -339,8 +340,6 @@ static int pci_epf_test_copy(struct pci_epf_test *epf_test)
+ 	struct pci_epf *epf = epf_test->epf;
+ 	struct device *dev = &epf->dev;
+ 	struct pci_epc *epc = epf->epc;
+-	enum pci_barno test_reg_bar = epf_test->test_reg_bar;
+-	struct pci_epf_test_reg *reg = epf_test->reg[test_reg_bar];
+ 
+ 	src_addr = pci_epc_mem_alloc_addr(epc, &src_phys_addr, reg->size);
+ 	if (!src_addr) {
+@@ -426,7 +425,8 @@ static int pci_epf_test_copy(struct pci_epf_test *epf_test)
+ 	return ret;
+ }
+ 
+-static int pci_epf_test_read(struct pci_epf_test *epf_test)
++static int pci_epf_test_read(struct pci_epf_test *epf_test,
++			     struct pci_epf_test_reg *reg)
+ {
+ 	int ret;
+ 	void __iomem *src_addr;
+@@ -440,8 +440,6 @@ static int pci_epf_test_read(struct pci_epf_test *epf_test)
+ 	struct device *dev = &epf->dev;
+ 	struct pci_epc *epc = epf->epc;
+ 	struct device *dma_dev = epf->epc->dev.parent;
+-	enum pci_barno test_reg_bar = epf_test->test_reg_bar;
+-	struct pci_epf_test_reg *reg = epf_test->reg[test_reg_bar];
+ 
+ 	src_addr = pci_epc_mem_alloc_addr(epc, &phys_addr, reg->size);
+ 	if (!src_addr) {
+@@ -516,7 +514,8 @@ static int pci_epf_test_read(struct pci_epf_test *epf_test)
+ 	return ret;
+ }
+ 
+-static int pci_epf_test_write(struct pci_epf_test *epf_test)
++static int pci_epf_test_write(struct pci_epf_test *epf_test,
++			      struct pci_epf_test_reg *reg)
+ {
+ 	int ret;
+ 	void __iomem *dst_addr;
+@@ -529,8 +528,6 @@ static int pci_epf_test_write(struct pci_epf_test *epf_test)
+ 	struct device *dev = &epf->dev;
+ 	struct pci_epc *epc = epf->epc;
+ 	struct device *dma_dev = epf->epc->dev.parent;
+-	enum pci_barno test_reg_bar = epf_test->test_reg_bar;
+-	struct pci_epf_test_reg *reg = epf_test->reg[test_reg_bar];
+ 
+ 	dst_addr = pci_epc_mem_alloc_addr(epc, &phys_addr, reg->size);
+ 	if (!dst_addr) {
+@@ -675,7 +672,7 @@ static void pci_epf_test_cmd_handler(struct work_struct *work)
+ 	}
+ 
+ 	if (command & COMMAND_WRITE) {
+-		ret = pci_epf_test_write(epf_test);
++		ret = pci_epf_test_write(epf_test, reg);
+ 		if (ret)
+ 			reg->status |= STATUS_WRITE_FAIL;
+ 		else
+@@ -686,7 +683,7 @@ static void pci_epf_test_cmd_handler(struct work_struct *work)
+ 	}
+ 
+ 	if (command & COMMAND_READ) {
+-		ret = pci_epf_test_read(epf_test);
++		ret = pci_epf_test_read(epf_test, reg);
+ 		if (!ret)
+ 			reg->status |= STATUS_READ_SUCCESS;
+ 		else
+@@ -697,7 +694,7 @@ static void pci_epf_test_cmd_handler(struct work_struct *work)
+ 	}
+ 
+ 	if (command & COMMAND_COPY) {
+-		ret = pci_epf_test_copy(epf_test);
++		ret = pci_epf_test_copy(epf_test, reg);
+ 		if (!ret)
+ 			reg->status |= STATUS_COPY_SUCCESS;
+ 		else
+-- 
+2.39.2
+

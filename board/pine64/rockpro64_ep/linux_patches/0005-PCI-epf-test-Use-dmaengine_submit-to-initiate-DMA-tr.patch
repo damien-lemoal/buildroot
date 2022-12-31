@@ -1,0 +1,31 @@
+From 1e1ab33fb7e33058b04184d0e07de705af324f54 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Mon, 6 Mar 2023 13:59:39 +0900
+Subject: [PATCH 05/34] PCI: epf-test: Use dmaengine_submit() to initiate DMA
+ transfer
+
+Instead of an open coded call to the tx_submit() operation of struct
+dma_async_tx_descriptor, use the helper function dmaengine_submit().
+No functional change is introduced with this.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/endpoint/functions/pci-epf-test.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/pci/endpoint/functions/pci-epf-test.c b/drivers/pci/endpoint/functions/pci-epf-test.c
+index 557fbb91c729..3dce9827bd2a 100644
+--- a/drivers/pci/endpoint/functions/pci-epf-test.c
++++ b/drivers/pci/endpoint/functions/pci-epf-test.c
+@@ -163,7 +163,7 @@ static int pci_epf_test_data_transfer(struct pci_epf_test *epf_test,
+ 	epf_test->transfer_chan = chan;
+ 	tx->callback = pci_epf_test_dma_callback;
+ 	tx->callback_param = epf_test;
+-	epf_test->transfer_cookie = tx->tx_submit(tx);
++	epf_test->transfer_cookie = dmaengine_submit(tx);
+ 
+ 	ret = dma_submit_error(epf_test->transfer_cookie);
+ 	if (ret) {
+-- 
+2.39.2
+

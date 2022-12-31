@@ -1,0 +1,87 @@
+From 348796dff45e0b170981e132bdb090dcf97104dc Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Mon, 20 Feb 2023 13:19:52 +0900
+Subject: [PATCH 27/34] PCI: rockchip: Do not advertize support for MSIX
+
+The rockchip EP controller includes in the EP configuration space a PCI
+capability entry for MSIX. However, the rockchip controller does not
+support MSIX. This entry should thus not be present in the endpoint
+capability list to avoid that a host tries to use this non-existent
+capability.
+
+Modify the capability list to skip the MSIX entry by pointing to the
+entry following the MSIX entry from the previosu capability in the list
+(the MSI capability entry).
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 21 +++++++++++++++++++++
+ drivers/pci/controller/pcie-rockchip.h    |  6 ++++++
+ 2 files changed, 27 insertions(+)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index d90b9e119a53..12db9a9d92af 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -535,6 +535,7 @@ static int rockchip_pcie_ep_probe(struct platform_device *pdev)
+ 	struct pci_epc *epc;
+ 	size_t max_regions;
+ 	struct pci_epc_mem_window *windows = NULL;
++	u32 cfg_msi, cfg_msix;
+ 	int err;
+ 	int i;
+ 
+@@ -614,6 +615,26 @@ static int rockchip_pcie_ep_probe(struct platform_device *pdev)
+ 
+ 	ep->irq_pci_addr = ROCKCHIP_PCIE_EP_DUMMY_IRQ_ADDR;
+ 
++	/*
++	 * Disable MSI-X because the controller is not capable of MSI-X.
++	 * This requires to skip the MSI-X capability entry in the
++	 * chain of PCIe capabilities, we get the next pointer from the
++	 * MSI-X entry and set that in the MSI capability entry. This way
++	 * the MSI-X entry is skipped (left out of the linked-list).
++	 */
++	cfg_msi = rockchip_pcie_read(rockchip,
++				     PCIE_EP_CONFIG_BASE +
++				     ROCKCHIP_PCIE_EP_MSI_CTRL_REG);
++	cfg_msi &= ~ROCKCHIP_PCIE_EP_MSI_CP1_MASK;
++
++	cfg_msix = rockchip_pcie_read(rockchip,
++				      PCIE_EP_CONFIG_BASE +
++				      ROCKCHIP_PCIE_EP_MSIX_CTRL_REG);
++	cfg_msix &= ROCKCHIP_PCIE_EP_MSIX_CP_MASK;
++	cfg_msi |= cfg_msix;
++	rockchip_pcie_write(rockchip, cfg_msi,
++			    PCIE_EP_CONFIG_BASE + ROCKCHIP_PCIE_EP_MSI_CTRL_REG);
++
+ 	rockchip_pcie_write(rockchip, PCIE_CLIENT_CONF_ENABLE, PCIE_CLIENT_CONFIG);
+ 
+ 	return 0;
+diff --git a/drivers/pci/controller/pcie-rockchip.h b/drivers/pci/controller/pcie-rockchip.h
+index 0f00ba693a94..2c96b560c23f 100644
+--- a/drivers/pci/controller/pcie-rockchip.h
++++ b/drivers/pci/controller/pcie-rockchip.h
+@@ -230,6 +230,8 @@
+ #define   ROCKCHIP_PCIE_EP_INT_PIN_OFFSET		8
+ #define   ROCKCHIP_PCIE_EP_INT_PIN_MASK			GENMASK(10, 8)
+ #define ROCKCHIP_PCIE_EP_MSI_CTRL_REG			0x90
++#define   ROCKCHIP_PCIE_EP_MSI_CP1_OFFSET		8
++#define   ROCKCHIP_PCIE_EP_MSI_CP1_MASK			GENMASK(15, 8)
+ #define   ROCKCHIP_PCIE_EP_MSI_FLAGS_OFFSET		16
+ #define   ROCKCHIP_PCIE_EP_MSI_CTRL_MMC_OFFSET		17
+ #define   ROCKCHIP_PCIE_EP_MSI_CTRL_MMC_MASK		GENMASK(19, 17)
+@@ -238,6 +240,10 @@
+ #define   ROCKCHIP_PCIE_EP_MSI_CTRL_ME				BIT(16)
+ #define   ROCKCHIP_PCIE_EP_MSI_CTRL_MSI64_CAP		BIT(23)
+ #define   ROCKCHIP_PCIE_EP_MSI_CTRL_MASK_MSI_CAP	BIT(24)
++#define ROCKCHIP_PCIE_EP_MSIX_CTRL_REG			0xb0
++#define   ROCKCHIP_PCIE_EP_MSIX_CP_OFFSET		8
++#define   ROCKCHIP_PCIE_EP_MSIX_CP_MASK			GENMASK(15, 8)
++
+ #define ROCKCHIP_PCIE_EP_DUMMY_IRQ_ADDR				0x1
+ #define ROCKCHIP_PCIE_EP_FUNC_BASE(fn) \
+ 	(PCIE_EP_PF_CONFIG_REGS_BASE + (((fn) << 12) & GENMASK(19, 12)))
+-- 
+2.39.2
+
