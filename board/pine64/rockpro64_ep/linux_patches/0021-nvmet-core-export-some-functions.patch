@@ -1,0 +1,80 @@
+From cb50d217c6c26639a9cf037317a3b259f9ec4d38 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Wed, 11 Jan 2023 18:06:23 +0900
+Subject: [PATCH 21/23] nvmet: core: export some functions
+
+Export several functions as GPL symbols to allow their use from other
+drivers. The functions exported are:
+ - nvmet_ns_alloc() and nvmet_ns_free()
+ - nvmet_ns_enable() and nvmet_ns_disable()
+ - nvmet_subsys_alloc() and nvmet_subsys_put()
+ - nvmet_update_cc()
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/nvme/target/core.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/drivers/nvme/target/core.c b/drivers/nvme/target/core.c
+index 3935165048e7..78f40aee916e 100644
+--- a/drivers/nvme/target/core.c
++++ b/drivers/nvme/target/core.c
+@@ -614,6 +614,7 @@ int nvmet_ns_enable(struct nvmet_ns *ns)
+ 	nvmet_ns_dev_disable(ns);
+ 	goto out_unlock;
+ }
++EXPORT_SYMBOL_GPL(nvmet_ns_enable);
+ 
+ void nvmet_ns_disable(struct nvmet_ns *ns)
+ {
+@@ -655,6 +656,7 @@ void nvmet_ns_disable(struct nvmet_ns *ns)
+ out_unlock:
+ 	mutex_unlock(&subsys->lock);
+ }
++EXPORT_SYMBOL_GPL(nvmet_ns_disable);
+ 
+ void nvmet_ns_free(struct nvmet_ns *ns)
+ {
+@@ -667,6 +669,7 @@ void nvmet_ns_free(struct nvmet_ns *ns)
+ 	kfree(ns->device_path);
+ 	kfree(ns);
+ }
++EXPORT_SYMBOL_GPL(nvmet_ns_free);
+ 
+ struct nvmet_ns *nvmet_ns_alloc(struct nvmet_subsys *subsys, u32 nsid)
+ {
+@@ -692,6 +695,7 @@ struct nvmet_ns *nvmet_ns_alloc(struct nvmet_subsys *subsys, u32 nsid)
+ 
+ 	return ns;
+ }
++EXPORT_SYMBOL_GPL(nvmet_ns_alloc);
+ 
+ static void nvmet_update_sq_head(struct nvmet_req *req)
+ {
+@@ -1212,6 +1216,7 @@ void nvmet_update_cc(struct nvmet_ctrl *ctrl, u32 new)
+ 		ctrl->csts &= ~NVME_CSTS_SHST_CMPLT;
+ 	mutex_unlock(&ctrl->lock);
+ }
++EXPORT_SYMBOL_GPL(nvmet_update_cc);
+ 
+ static void nvmet_init_cap(struct nvmet_ctrl *ctrl)
+ {
+@@ -1612,6 +1617,7 @@ struct nvmet_subsys *nvmet_subsys_alloc(const char *subsysnqn,
+ 	kfree(subsys);
+ 	return ERR_PTR(ret);
+ }
++EXPORT_SYMBOL_GPL(nvmet_subsys_alloc);
+ 
+ static void nvmet_subsys_free(struct kref *ref)
+ {
+@@ -1643,6 +1649,7 @@ void nvmet_subsys_put(struct nvmet_subsys *subsys)
+ {
+ 	kref_put(&subsys->ref, nvmet_subsys_free);
+ }
++EXPORT_SYMBOL_GPL(nvmet_subsys_put);
+ 
+ static int __init nvmet_init(void)
+ {
+-- 
+2.41.0
+
