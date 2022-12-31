@@ -1,0 +1,162 @@
+From 05075475e7039b19b223295d1340d4da056b772b Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Thu, 13 Apr 2023 17:06:19 +0900
+Subject: [PATCH 35/52] PCI: endpoint: Introduce pci_epc_mem_map()/unmap()
+
+Introduce the function pci_epc_mem_map() to facilitate controller memory
+address allocation and mapping to RC PCI address in endpoint function
+drivers.
+
+This function first uses pci_epc_map_size() to determine the controller
+memory address alignment (offset and size) constraints. The result of
+this function is used to allocate a sufficiently large CPU address
+range using pci_epc_mem_alloc_addr() and map it to the RC PCI address
+space with pci_epc_map_addr().
+
+The counterpart of pci_epc_mem_map() to unmap and free the controller
+memory address range is pci_epc_mem_unmap().
+
+Introduce the new struct pci_epc_map data structure to exchange between
+these 2 functions the allocation and mapping information. Endpoint
+function drivers can use struct pci_epc_map to implement read/write
+accesses to the RC PCI address through the ->virt_addr field.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/endpoint/pci-epc-core.c | 76 +++++++++++++++++++++++++++++
+ include/linux/pci-epc.h             | 27 ++++++++++
+ 2 files changed, 103 insertions(+)
+
+diff --git a/drivers/pci/endpoint/pci-epc-core.c b/drivers/pci/endpoint/pci-epc-core.c
+index 3f18b54adff7..78508fcfe25e 100644
+--- a/drivers/pci/endpoint/pci-epc-core.c
++++ b/drivers/pci/endpoint/pci-epc-core.c
+@@ -510,6 +510,82 @@ int pci_epc_map_addr(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ }
+ EXPORT_SYMBOL_GPL(pci_epc_map_addr);
+ 
++/**
++ * pci_epc_mem_map() - allocate and map CPU address to PCI address
++ * @epc: the EPC device on which the CPU address is to be allocated and mapped
++ * @func_no: the physical endpoint function number in the EPC device
++ * @vfunc_no: the virtual endpoint function number in the physical function
++ * @pci_addr: PCI address to which the CPU address should be mapped
++ * @size: the size of the mapping
++ * @map: where to return the mapping information
++ *
++ * Allocate and map a local CPU address region and map it to a PCI address,
++ * accounting for the controller local CPU address offset constraint (if any).
++ */
++int pci_epc_mem_map(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
++		    u64 pci_addr, size_t size, struct pci_epc_map *map)
++{
++	phys_addr_t phys_ofst = 0;
++	int ret;
++
++	if (!pci_epc_check_func(epc, func_no, vfunc_no))
++		return -EINVAL;
++
++	if (!map | !size)
++		return -EINVAL;
++
++	map->pci_size = size;
++	map->pci_addr = pci_addr;
++	map->phys_size = pci_epc_map_size(epc, func_no, vfunc_no,
++				     pci_addr, size, &phys_ofst);
++	if (map->phys_size < 0)
++		return map->phys_size;
++
++	map->virt_base = pci_epc_mem_alloc_addr(epc, &map->phys_base,
++						map->phys_size);
++	if (!map->virt_base)
++		return -ENOMEM;
++
++	map->phys_addr = map->phys_base + phys_ofst;
++	map->virt_addr = map->virt_base + phys_ofst;
++
++	ret = pci_epc_map_addr(epc, func_no, vfunc_no, map->phys_addr,
++			       pci_addr, size);
++	if (ret) {
++		pci_epc_mem_free_addr(epc, map->phys_base, map->virt_base,
++				      map->phys_size);
++		return ret;
++	}
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(pci_epc_mem_map);
++
++/**
++ * pci_epc_mem_unmap() - unmap from PCI address and free a CPU address region
++ * @epc: the EPC device on which the CPU address is allocated and mapped
++ * @func_no: the physical endpoint function number in the EPC device
++ * @vfunc_no: the virtual endpoint function number in the physical function
++ * @map: the mapping information
++ *
++ * Allocate and map local CPU address to a PCI address, accounting for the
++ * controller local CPU address alignement constraints.
++ */
++void pci_epc_mem_unmap(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
++		       struct pci_epc_map *map)
++{
++	if (!pci_epc_check_func(epc, func_no, vfunc_no))
++		return;
++
++	if (!map)
++		return;
++
++	pci_epc_unmap_addr(epc, func_no, vfunc_no, map->phys_addr);
++	pci_epc_mem_free_addr(epc, map->phys_base, map->virt_base,
++			      map->phys_size);
++}
++EXPORT_SYMBOL_GPL(pci_epc_mem_unmap);
++
+ /**
+  * pci_epc_clear_bar() - reset the BAR
+  * @epc: the EPC device for which the BAR has to be cleared
+diff --git a/include/linux/pci-epc.h b/include/linux/pci-epc.h
+index 350361a2e089..36408bc32da5 100644
+--- a/include/linux/pci-epc.h
++++ b/include/linux/pci-epc.h
+@@ -186,6 +186,27 @@ struct pci_epc_features {
+ 	size_t	align;
+ };
+ 
++/**
++ * struct pci_epc_map - represents EPC addr space mapping to PCI addr space
++ * @pci_addr: mapping start PCI address
++ * @pci_size: size mapped starting from @pci_addr
++ * @phys_size: size of the EPC memory allocated
++ * @phys_base: base physical address of the allocated EPC memory
++ * @phys_addr: physical address at which @pci_addr is mapped
++ * @virt_base: base virtual address of the allocated EPC memory
++ * @virt_addr: virtual address at which @pci_addr is mapped
++ */
++struct pci_epc_map {
++	phys_addr_t	pci_addr;
++	size_t		pci_size;
++
++	size_t		phys_size;
++	phys_addr_t	phys_base;
++	phys_addr_t	phys_addr;
++	void __iomem	*virt_base;
++	void __iomem	*virt_addr;
++};
++
+ #define to_pci_epc(device) container_of((device), struct pci_epc, dev)
+ 
+ #define pci_epc_create(dev, ops)    \
+@@ -262,4 +283,10 @@ void __iomem *pci_epc_mem_alloc_addr(struct pci_epc *epc,
+ 				     phys_addr_t *phys_addr, size_t size);
+ void pci_epc_mem_free_addr(struct pci_epc *epc, phys_addr_t phys_addr,
+ 			   void __iomem *virt_addr, size_t size);
++
++int pci_epc_mem_map(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
++		    u64 pci_addr, size_t size, struct pci_epc_map *map);
++void pci_epc_mem_unmap(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
++		       struct pci_epc_map *map);
++
+ #endif /* __LINUX_PCI_EPC_H */
+-- 
+2.40.1
+

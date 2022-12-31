@@ -1,0 +1,114 @@
+From 2306312c93e281a4a195e8bd60166268dc5de843 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Thu, 13 Apr 2023 14:45:40 +0900
+Subject: [PATCH 34/52] PCI: endpoint: Introduce pci_epc_map_size()
+
+Some endpoint controllers impose requirements on the alignment of the
+controller memory address that must be used to map an RC PCI address.
+For instance, the rockchip endpoint controller uses the lower bits of
+the controller memory address to define the RC PCI address lower bits
+used for a mapping, resulting in the need to match these lower bits when
+using controller memory obtained with pci_epc_mem_alloc_addr().
+
+Introduce the function pci_epc_map_size() and the map_size endpoint
+controller operation to allow endpoint function drivers to obtain the
+size and the offset into a controller address region that must be used
+to map an RC PCI address range.
+
+The map_size controller operation is optional: controllers that do not
+have any controller address alignement constraint for mapping a RC PCI
+address do not need to implement the map_size operation. For such
+controller, pci_epc_map_size() always return the specified size and an
+offset of 0.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/endpoint/pci-epc-core.c | 40 +++++++++++++++++++++++++++++
+ include/linux/pci-epc.h             |  6 +++++
+ 2 files changed, 46 insertions(+)
+
+diff --git a/drivers/pci/endpoint/pci-epc-core.c b/drivers/pci/endpoint/pci-epc-core.c
+index fb2690468c0c..3f18b54adff7 100644
+--- a/drivers/pci/endpoint/pci-epc-core.c
++++ b/drivers/pci/endpoint/pci-epc-core.c
+@@ -439,6 +439,46 @@ void pci_epc_unmap_addr(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ }
+ EXPORT_SYMBOL_GPL(pci_epc_unmap_addr);
+ 
++/**
++ * pci_epc_map_size() - Get the offset into and the size of a controller memory
++ *			address needed to map a RC PCI address region
++ * @epc: the EPC device on which address is allocated
++ * @func_no: the physical endpoint function number in the EPC device
++ * @vfunc_no: the virtual endpoint function number in the physical function
++ * @pci_addr: PCI address to which the physical address should be mapped
++ * @size: the size of the mapping
++ * @ofst: populate the offset into the allocated controller memory for the
++ *        mapping here
++ *
++ * Invoke the controller map_size operation to obtain the size and the offset
++ * into a controller address region that must be used to map @size bytes of
++ * the RC PCI address space starting from @pci_addr.
++ */
++ssize_t pci_epc_map_size(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
++			 u64 pci_addr, size_t size, phys_addr_t *ofst)
++{
++	ssize_t map_size;
++
++	if (!pci_epc_check_func(epc, func_no, vfunc_no))
++		return -EINVAL;
++
++	if (!size || !ofst)
++		return -EINVAL;
++
++	if (!epc->ops->map_size) {
++		*ofst = 0;
++		return size;
++	}
++
++	mutex_lock(&epc->lock);
++	map_size = epc->ops->map_size(epc, func_no, vfunc_no,
++				      pci_addr, size, ofst);
++	mutex_unlock(&epc->lock);
++
++	return map_size;
++}
++EXPORT_SYMBOL_GPL(pci_epc_map_size);
++
+ /**
+  * pci_epc_map_addr() - map CPU address to PCI address
+  * @epc: the EPC device on which address is allocated
+diff --git a/include/linux/pci-epc.h b/include/linux/pci-epc.h
+index 18a0c3dc1a95..350361a2e089 100644
+--- a/include/linux/pci-epc.h
++++ b/include/linux/pci-epc.h
+@@ -51,6 +51,8 @@ struct pci_epc_event_ops {
+  * @write_header: ops to populate configuration space header
+  * @set_bar: ops to configure the BAR
+  * @clear_bar: ops to reset the BAR
++ * @map_size: ops to get the size and offset into a controller memory region
++ *            needed to map an RC PCI address
+  * @map_addr: ops to map CPU address to PCI address
+  * @unmap_addr: ops to unmap CPU address and PCI address
+  * @set_msi: ops to set the requested number of MSI interrupts in the MSI
+@@ -75,6 +77,8 @@ struct pci_epc_ops {
+ 			   struct pci_epf_bar *epf_bar);
+ 	void	(*clear_bar)(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 			     struct pci_epf_bar *epf_bar);
++	ssize_t	(*map_size)(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
++			    u64 pci_addr, size_t size, phys_addr_t *ofst);
+ 	int	(*map_addr)(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 			    phys_addr_t addr, u64 pci_addr, size_t size);
+ 	void	(*unmap_addr)(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+@@ -219,6 +223,8 @@ int pci_epc_set_bar(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 		    struct pci_epf_bar *epf_bar);
+ void pci_epc_clear_bar(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 		       struct pci_epf_bar *epf_bar);
++ssize_t pci_epc_map_size(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
++			 u64 pci_addr, size_t size, phys_addr_t *ofst);
+ int pci_epc_map_addr(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 		     phys_addr_t phys_addr,
+ 		     u64 pci_addr, size_t size);
+-- 
+2.40.1
+

@@ -1,0 +1,30 @@
+From 955ed997173e2d6f7b78e27aee3248ee7087a2e2 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Mon, 17 Apr 2023 11:26:29 +0200
+Subject: [PATCH 28/52] PCI: rockchip: Set address alignment for endpoint mode
+
+The address translation unit of the rockchip EP controller does not use
+the lower 8 bits of a PCIe-space address to map local memory. Thus we
+must set the align feature field to 256 to let the user know about this
+constraint.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index edfced311a9f..0af0e965fb57 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -442,6 +442,7 @@ static const struct pci_epc_features rockchip_pcie_epc_features = {
+ 	.linkup_notifier = false,
+ 	.msi_capable = true,
+ 	.msix_capable = false,
++	.align = 256,
+ };
+ 
+ static const struct pci_epc_features*
+-- 
+2.40.1
+
