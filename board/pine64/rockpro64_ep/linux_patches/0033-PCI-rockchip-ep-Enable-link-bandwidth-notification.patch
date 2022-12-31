@@ -1,0 +1,58 @@
+From 195b6ba26d53c6a61e0fa50cd47637538c124ecf Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Sun, 5 Mar 2023 13:19:25 +0900
+Subject: [PATCH 33/34] PCI: rockchip-ep: Enable link bandwidth notification
+
+Blah
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 11 ++++++++++-
+ drivers/pci/controller/pcie-rockchip.h    |  2 ++
+ 2 files changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index b434d9f24fea..ab05a7c3dc85 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -737,7 +737,7 @@ static int rockchip_pcie_ep_probe(struct platform_device *pdev)
+ 	struct pci_epc *epc;
+ 	size_t max_regions;
+ 	struct pci_epc_mem_window *windows = NULL;
+-	u32 cfg_msi, cfg_msix;
++	u32 reg, cfg_msi, cfg_msix;
+ 	int err;
+ 	int i;
+ 
+@@ -837,6 +837,15 @@ static int rockchip_pcie_ep_probe(struct platform_device *pdev)
+ 	rockchip_pcie_write(rockchip, cfg_msi,
+ 			    PCIE_EP_CONFIG_BASE + ROCKCHIP_PCIE_EP_MSI_CTRL_REG);
+ 
++	/* Enable link bandwidth notification */
++	reg = rockchip_pcie_read(rockchip,
++				 PCIE_EP_CONFIG_BASE +
++				 ROCKCHIP_PCIE_EP_LINK_CAP_REG);
++	reg |= ROCKCHIP_PCIE_EP_LINK_LBNC;
++	rockchip_pcie_write(rockchip, reg,
++			    PCIE_EP_CONFIG_BASE +
++			    ROCKCHIP_PCIE_EP_LINK_CAP_REG);
++
+ 	rockchip_pcie_write(rockchip, PCIE_CLIENT_CONF_ENABLE, PCIE_CLIENT_CONFIG);
+ 
+ 	err = rockchip_pcie_ep_setup_irq(rockchip);
+diff --git a/drivers/pci/controller/pcie-rockchip.h b/drivers/pci/controller/pcie-rockchip.h
+index 27659cbe73d2..b705e3cb97b6 100644
+--- a/drivers/pci/controller/pcie-rockchip.h
++++ b/drivers/pci/controller/pcie-rockchip.h
+@@ -243,6 +243,8 @@
+ #define ROCKCHIP_PCIE_EP_MSIX_CTRL_REG			0xb0
+ #define   ROCKCHIP_PCIE_EP_MSIX_CP_OFFSET		8
+ #define   ROCKCHIP_PCIE_EP_MSIX_CP_MASK			GENMASK(15, 8)
++#define ROCKCHIP_PCIE_EP_LINK_CAP_REG			0xcc
++#define   ROCKCHIP_PCIE_EP_LINK_LBNC			BIT(21)
+ 
+ #define ROCKCHIP_PCIE_EP_DUMMY_IRQ_ADDR				0x1
+ 
+-- 
+2.39.2
+

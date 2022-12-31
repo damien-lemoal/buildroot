@@ -1,0 +1,33 @@
+From 16d05fc1ac93bb88d88772821fda2994bf8b1a93 Mon Sep 17 00:00:00 2001
+From: Rick Wertenbroek <rick.wertenbroek@gmail.com>
+Date: Thu, 26 Jan 2023 14:50:43 +0100
+Subject: [PATCH 14/34] PCI: rockchip: Fix endpoint controller Configuration
+ Request Retry Status
+
+The endpoint is left in the config mode after probe, this would mean the
+core would send configuration requestion retry status (CRS) messages back
+to the root complex. The conf_en bit should be asserted after probe. This
+is documented in section 17.5.8.1.2 of the RK3399 TRM.
+
+Signed-off-by: Rick Wertenbroek <rick.wertenbroek@gmail.com>
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index a1754514fa9b..91bcd26df1b9 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -633,6 +633,8 @@ static int rockchip_pcie_ep_probe(struct platform_device *pdev)
+ 
+ 	ep->irq_pci_addr = ROCKCHIP_PCIE_EP_DUMMY_IRQ_ADDR;
+ 
++	rockchip_pcie_write(rockchip, PCIE_CLIENT_CONF_ENABLE, PCIE_CLIENT_CONFIG);
++
+ 	return 0;
+ err_epc_mem_exit:
+ 	pci_epc_mem_exit(epc);
+-- 
+2.39.2
+

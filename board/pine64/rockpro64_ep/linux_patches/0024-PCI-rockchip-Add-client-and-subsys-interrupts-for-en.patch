@@ -1,0 +1,212 @@
+From 9f236b9ac02e52407ea9d88920ada2887cec872c Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Tue, 28 Feb 2023 16:57:01 +0900
+Subject: [PATCH 24/34] PCI: rockchip: Add client and subsys interrupts for
+ endpoint mode
+
+Add an interrupt handler for the client and subsystem interrupts to
+the rockchip endpoint driver. Clearing these interrupts is necesssary
+to avoid seeing the controller getting stuck on non fatal errors.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 176 ++++++++++++++++++++++
+ 1 file changed, 176 insertions(+)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index 12db9a9d92af..c1d39d3b45da 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -50,6 +50,176 @@ struct rockchip_pcie_ep {
+ 	u8			irq_pending;
+ };
+ 
++static void rockchip_pcie_ep_handle_local_int(struct rockchip_pcie *rockchip)
++{
++	struct device *dev = rockchip->dev;
++	u32 reg;
++
++	dev_dbg(dev, "local interrupt received\n");
++
++	reg = rockchip_pcie_read(rockchip, PCIE_CORE_INT_STATUS);
++	if (reg & PCIE_CORE_INT_PRFPE)
++		dev_dbg(dev, "parity error detected while reading from the PNP receive FIFO RAM\n");
++
++	if (reg & PCIE_CORE_INT_CRFPE)
++		dev_dbg(dev, "parity error detected while reading from the Completion Receive FIFO RAM\n");
++
++	if (reg & PCIE_CORE_INT_RRPE)
++		dev_dbg(dev, "parity error detected while reading from replay buffer RAM\n");
++
++	if (reg & PCIE_CORE_INT_PRFO)
++		dev_dbg(dev, "overflow occurred in the PNP receive FIFO\n");
++
++	if (reg & PCIE_CORE_INT_CRFO)
++		dev_dbg(dev, "overflow occurred in the completion receive FIFO\n");
++
++	if (reg & PCIE_CORE_INT_RT)
++		dev_dbg(dev, "replay timer timed out\n");
++
++	if (reg & PCIE_CORE_INT_RTR)
++		dev_dbg(dev, "replay timer rolled over after 4 transmissions of the same TLP\n");
++
++	if (reg & PCIE_CORE_INT_PE)
++		dev_dbg(dev, "phy error detected on receive side\n");
++
++	if (reg & PCIE_CORE_INT_MTR)
++		dev_dbg(dev, "malformed TLP received from the link\n");
++
++	if (reg & PCIE_CORE_INT_UCR)
++		dev_dbg(dev, "malformed TLP received from the link\n");
++
++	if (reg & PCIE_CORE_INT_FCE)
++		dev_dbg(dev, "an error was observed in the flow control advertisements from the other side\n");
++
++	if (reg & PCIE_CORE_INT_CT)
++		dev_dbg(dev, "a request timed out waiting for completion\n");
++
++	if (reg & PCIE_CORE_INT_UTC)
++		dev_dbg(dev, "unmapped TC error\n");
++
++	if (reg & PCIE_CORE_INT_MMVC)
++		dev_dbg(dev, "MSI mask register changes\n");
++
++	rockchip_pcie_write(rockchip, reg, PCIE_CORE_INT_STATUS);
++}
++
++static irqreturn_t rockchip_pcie_ep_irq_handler(int irq, void *arg)
++{
++	struct rockchip_pcie *rockchip = arg;
++	struct device *dev = rockchip->dev;
++	u32 reg, mask = 0;
++
++	reg = rockchip_pcie_read(rockchip, PCIE_CLIENT_INT_STATUS);
++
++	if (reg & PCIE_CLIENT_INT_LEGACY_DONE) {
++		dev_dbg(dev, "legacy done interrupt received\n");
++		mask |= PCIE_CLIENT_INT_LEGACY_DONE;
++	}
++
++	if (reg & PCIE_CLIENT_INT_MSG) {
++		dev_dbg(dev, "message done interrupt received\n");
++		mask |= PCIE_CLIENT_INT_MSG;
++	}
++
++	if (reg & PCIE_CLIENT_INT_HOT_RST) {
++		dev_dbg(dev, "hot reset interrupt received\n");
++		mask |= PCIE_CLIENT_INT_HOT_RST;
++	}
++
++	if (reg & PCIE_CLIENT_INT_DPA) {
++		dev_dbg(dev, "dpa interrupt received\n");
++		mask |= PCIE_CLIENT_INT_DPA;
++	}
++
++	if (reg & PCIE_CLIENT_INT_FATAL_ERR) {
++		dev_dbg(dev, "fatal error interrupt received\n");
++		mask |= PCIE_CLIENT_INT_FATAL_ERR;
++	}
++
++	if (reg & PCIE_CLIENT_INT_NFATAL_ERR) {
++		dev_dbg(dev, "no fatal error interrupt received\n");
++		mask |= PCIE_CLIENT_INT_NFATAL_ERR;
++	}
++
++	if (reg & PCIE_CLIENT_INT_CORR_ERR) {
++		dev_dbg(dev, "correctable error interrupt received\n");
++		mask |= PCIE_CLIENT_INT_CORR_ERR;
++	}
++
++	if (reg & PCIE_CLIENT_INT_LOCAL) {
++		rockchip_pcie_ep_handle_local_int(rockchip);
++		mask |= PCIE_CLIENT_INT_LOCAL;
++	}
++
++	if (reg & PCIE_CLIENT_INT_UDMA) {
++		dev_dbg(dev, "uDMA interrupt received\n");
++		mask |= PCIE_CLIENT_INT_UDMA;
++	}
++
++	if (reg & PCIE_CLIENT_INT_PHY) {
++		dev_dbg(dev, "phy interrupt received\n");
++		mask |= PCIE_CLIENT_INT_PHY;
++	}
++
++	if (reg & PCIE_CLIENT_INT_PWR_STCG) {
++		dev_dbg(dev, "Power state change interrupt received\n");
++		mask |= PCIE_CLIENT_INT_PWR_STCG;
++	}
++
++	rockchip_pcie_write(rockchip, reg & mask, PCIE_CLIENT_INT_STATUS);
++
++	return IRQ_HANDLED;
++}
++
++static int rockchip_pcie_ep_setup_irq(struct rockchip_pcie *rockchip)
++{
++	int irq, err;
++	struct device *dev = rockchip->dev;
++	struct platform_device *pdev = to_platform_device(dev);
++
++	irq = platform_get_irq_byname(pdev, "sys");
++	if (irq < 0)
++		return irq;
++
++	/* PCIe subsystem interrupt */
++	err = devm_request_irq(dev, irq, rockchip_pcie_ep_irq_handler,
++			       IRQF_SHARED, "pcie-ep-sys", rockchip);
++	if (err) {
++		dev_err(dev, "Request PCIe subsystem IRQ failed\n");
++		return err;
++	}
++
++	/* PCIe client interrupt */
++	irq = platform_get_irq_byname(pdev, "client");
++	if (irq < 0)
++		return irq;
++
++	err = devm_request_irq(dev, irq, rockchip_pcie_ep_irq_handler,
++			       IRQF_SHARED, "pcie-ep-client", rockchip);
++	if (err) {
++		dev_err(dev, "Request PCIe client IRQ failed\n");
++		return err;
++	}
++
++	return 0;
++}
++
++static void rockchip_pcie_ep_enable_interrupts(struct rockchip_pcie *rockchip)
++{
++	u32 client_mask = PCIE_CLIENT_INT_LEGACY_DONE |
++		PCIE_CLIENT_INT_MSG | PCIE_CLIENT_INT_DPA |
++		PCIE_CLIENT_INT_FATAL_ERR | PCIE_CLIENT_INT_NFATAL_ERR |
++		PCIE_CLIENT_INT_CORR_ERR |
++		PCIE_CLIENT_INT_LOCAL | PCIE_CLIENT_INT_UDMA |
++		PCIE_CLIENT_INT_PWR_STCG;
++
++	rockchip_pcie_write(rockchip, (client_mask << 16) & ~client_mask,
++			    PCIE_CLIENT_INT_MASK);
++
++	rockchip_pcie_write(rockchip, (u32)(~PCIE_CORE_INT),
++			    PCIE_CORE_INT_MASK);
++}
++
+ static inline int rockchip_ob_region(u64 phys_addr)
+ {
+ 	return (phys_addr >> ilog2(SZ_1M)) & 0x1f;
+@@ -637,6 +807,12 @@ static int rockchip_pcie_ep_probe(struct platform_device *pdev)
+ 
+ 	rockchip_pcie_write(rockchip, PCIE_CLIENT_CONF_ENABLE, PCIE_CLIENT_CONFIG);
+ 
++	err = rockchip_pcie_ep_setup_irq(rockchip);
++	if (err)
++		goto err_epc_mem_exit;
++
++	rockchip_pcie_ep_enable_interrupts(rockchip);
++
+ 	return 0;
+ err_epc_mem_exit:
+ 	pci_epc_mem_exit(epc);
+-- 
+2.39.2
+

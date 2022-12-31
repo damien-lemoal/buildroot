@@ -1,0 +1,45 @@
+From b629b600b2e91c14994db6c55091a2e24f173e0d Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Sun, 5 Mar 2023 13:33:49 +0900
+Subject: [PATCH 34/34] rockchip link status
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index ab05a7c3dc85..e7104ee8bd03 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -653,6 +653,18 @@ static void rockchip_pcie_ep_probe_dma(struct pci_epc *epc)
+ 		 (reg & PCIE_CORE_PCIE_DMA_EXT_ATTR_WGT32) != 0);
+ }
+ 
++static void rockchip_pcie_ep_probe_link_status(struct rockchip_pcie *rockchip)
++{
++	struct device *dev = rockchip->dev;
++	u32 reg;
++
++	reg = rockchip_pcie_read(rockchip, PCIE_CORE_CTRL);
++	if (reg & BIT(0))
++		dev_info(dev, "###### Link training complete\n");
++	else
++		dev_info(dev, "###### Link training NOT complete !!\n");
++}
++	
+ static int rockchip_pcie_ep_start(struct pci_epc *epc)
+ {
+ 	struct rockchip_pcie_ep *ep = epc_get_drvdata(epc);
+@@ -660,6 +672,8 @@ static int rockchip_pcie_ep_start(struct pci_epc *epc)
+ 	struct pci_epf *epf;
+ 	u32 cfg;
+ 
++	rockchip_pcie_ep_probe_link_status(rockchip);
++
+ 	cfg = BIT(0);
+ 	list_for_each_entry(epf, &epc->pci_epf, list)
+ 		cfg |= BIT(epf->func_no);
+-- 
+2.39.2
+

@@ -1,0 +1,38 @@
+From 08be1fa550fc78f4bc8deb524e0d66fecc51607a Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Sun, 5 Mar 2023 12:40:24 +0900
+Subject: [PATCH 31/34] nvmet: Avoid potential UAF in nvmet_req_complete()
+
+A host ->queue_response() operation implementation may free the request
+passed as argument. Such implementation potentially could result
+in use after free of the request pointer when percpu_ref_put() is called
+in nvmet_req_complete().
+
+Avoid such problem by using a local variable to save the sq pointer
+before calling __nvmet_req_complete(), thus avoiding dereferencing the
+req pointer.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/nvme/target/core.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/nvme/target/core.c b/drivers/nvme/target/core.c
+index 597d1b2c0d52..0f9193323a02 100644
+--- a/drivers/nvme/target/core.c
++++ b/drivers/nvme/target/core.c
+@@ -758,8 +758,10 @@ static void __nvmet_req_complete(struct nvmet_req *req, u16 status)
+ 
+ void nvmet_req_complete(struct nvmet_req *req, u16 status)
+ {
++	struct nvmet_sq *sq = req->sq;
++
+ 	__nvmet_req_complete(req, status);
+-	percpu_ref_put(&req->sq->ref);
++	percpu_ref_put(&sq->ref);
+ }
+ EXPORT_SYMBOL_GPL(nvmet_req_complete);
+ 
+-- 
+2.39.2
+

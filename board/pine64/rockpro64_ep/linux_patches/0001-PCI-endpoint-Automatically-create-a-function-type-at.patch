@@ -1,0 +1,108 @@
+From eda247c7f7b960091cb46996d59d1beea4a72142 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Fri, 13 Jan 2023 13:27:15 +0900
+Subject: [PATCH 01/34] PCI: endpoint: Automatically create a function type
+ attributes group
+
+A PCI endpoint function driver can define function specific attributes
+using the add_cfs() endpoint driver operation. However, this attributes
+group is not created automatically when the function is created and
+rather relies on the user creating a directory within the endpoint
+function configfs directory to initialize the attributes.
+
+While working, this approach is dangerous as nothing prevents the user
+from creating multiple directories with differenti (wrong) names that
+all will contain the same attributes.
+
+Fix this by modifying pci_epf_cfs_work() to execute the new function
+pci_ep_cfs_add_type_group() which itself calls pci_epf_type_add_cfs() to
+obtain the function specific attribute group from the function driver.
+If the function driver defines an attribute group,
+pci_ep_cfs_add_type_group() then proceeds to register this group using
+configfs_register_group(), thus automatically exposing the configfs
+attributes to the user.
+
+With this change, there is no need for the user to create/delete
+directories in the endpoint function configfs directory. The
+pci_epf_type_group_ops group operations are thus removed.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/endpoint/pci-ep-cfs.c | 41 ++++++++++++++-----------------
+ 1 file changed, 19 insertions(+), 22 deletions(-)
+
+diff --git a/drivers/pci/endpoint/pci-ep-cfs.c b/drivers/pci/endpoint/pci-ep-cfs.c
+index d4850bdd837f..1fb31f07199f 100644
+--- a/drivers/pci/endpoint/pci-ep-cfs.c
++++ b/drivers/pci/endpoint/pci-ep-cfs.c
+@@ -23,6 +23,7 @@ struct pci_epf_group {
+ 	struct config_group group;
+ 	struct config_group primary_epc_group;
+ 	struct config_group secondary_epc_group;
++	struct config_group *type_group;
+ 	struct delayed_work cfs_work;
+ 	struct pci_epf *epf;
+ 	int index;
+@@ -502,34 +503,28 @@ static struct configfs_item_operations pci_epf_ops = {
+ 	.release		= pci_epf_release,
+ };
+ 
+-static struct config_group *pci_epf_type_make(struct config_group *group,
+-					      const char *name)
+-{
+-	struct pci_epf_group *epf_group = to_pci_epf_group(&group->cg_item);
+-	struct config_group *epf_type_group;
+-
+-	epf_type_group = pci_epf_type_add_cfs(epf_group->epf, group);
+-	return epf_type_group;
+-}
+-
+-static void pci_epf_type_drop(struct config_group *group,
+-			      struct config_item *item)
+-{
+-	config_item_put(item);
+-}
+-
+-static struct configfs_group_operations pci_epf_type_group_ops = {
+-	.make_group     = &pci_epf_type_make,
+-	.drop_item      = &pci_epf_type_drop,
+-};
+-
+ static const struct config_item_type pci_epf_type = {
+-	.ct_group_ops	= &pci_epf_type_group_ops,
+ 	.ct_item_ops	= &pci_epf_ops,
+ 	.ct_attrs	= pci_epf_attrs,
+ 	.ct_owner	= THIS_MODULE,
+ };
+ 
++static void pci_ep_cfs_add_type_group(struct pci_epf_group *epf_group)
++{
++	struct config_group *group;
++
++	group = pci_epf_type_add_cfs(epf_group->epf, &epf_group->group);
++	if (!group)
++		return;
++
++	if (IS_ERR(group)) {
++		pr_err("failed to create epf type specific attributes\n");
++		return;
++	}
++
++	configfs_register_group(&epf_group->group, group);
++}
++
+ static void pci_epf_cfs_work(struct work_struct *work)
+ {
+ 	struct pci_epf_group *epf_group;
+@@ -547,6 +542,8 @@ static void pci_epf_cfs_work(struct work_struct *work)
+ 		pr_err("failed to create 'secondary' EPC interface\n");
+ 		return;
+ 	}
++
++	pci_ep_cfs_add_type_group(epf_group);
+ }
+ 
+ static struct config_group *pci_epf_make(struct config_group *group,
+-- 
+2.39.2
+

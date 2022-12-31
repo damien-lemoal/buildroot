@@ -1,0 +1,96 @@
+From 68ebdeade5314cb5e0db1749dde1bbd8bf899a3f Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Tue, 28 Feb 2023 14:30:31 +0900
+Subject: [PATCH 28/34] rockchip dma
+
+Print info about PCIe DMA channels.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 34 +++++++++++++++++++++++
+ drivers/pci/controller/pcie-rockchip.h    | 17 ++++++++++++
+ 2 files changed, 51 insertions(+)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index c1d39d3b45da..b434d9f24fea 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -621,6 +621,38 @@ static int rockchip_pcie_ep_raise_irq(struct pci_epc *epc, u8 fn, u8 vfn,
+ 	}
+ }
+ 
++static void rockchip_pcie_ep_probe_dma(struct pci_epc *epc)
++{
++	struct rockchip_pcie_ep *ep = epc_get_drvdata(epc);
++	struct rockchip_pcie *rockchip = &ep->rockchip;
++	u32 reg;
++
++	dev_err(&epc->dev, "Probe PCI DMA channels\n");
++
++	reg = rockchip_pcie_read(rockchip, PCIE_CORE_PCIE_DMA_VER);
++	dev_info(&epc->dev, "PCI DMA version %lu.%lu\n",
++		 (reg & PCIE_CORE_PCIE_DMA_VER_MAJ_MASK) >> PCIE_CORE_PCIE_DMA_VER_MAJ_SHIFT,
++		 reg & PCIE_CORE_PCIE_DMA_VER_MIN_MASK);
++
++	reg = rockchip_pcie_read(rockchip, PCIE_CORE_PCIE_DMA_CONF);
++	dev_info(&epc->dev, "PCI DMA num channels: %lu\n",
++		 reg & PCIE_CORE_PCIE_DMA_CONF_NUM_CHAN);
++	dev_info(&epc->dev, "PCI DMA num partitions: %lu\n",
++		 (reg & PCIE_CORE_PCIE_DMA_NUM_PART_MASK)
++		 >> PCIE_CORE_PCIE_DMA_NUM_PART_SHIFT);
++	dev_info(&epc->dev, "PCI DMA partition size: %lu\n",
++		 (reg & PCIE_CORE_PCIE_DMA_PARTSZ_MASK)
++		 >> PCIE_CORE_PCIE_DMA_PARTSZ_SHIFT);
++	dev_info(&epc->dev, "PCI DMA sys addr > 32-bits: %u\n",
++		 (reg & PCIE_CORE_PCIE_DMA_SYS_ADDR_WGT32) != 0);
++	dev_info(&epc->dev, "PCI DMA sys attr > 32-bits: %u\n",
++		 (reg & PCIE_CORE_PCIE_DMA_SYS_ATTR_WGT32) != 0);
++	dev_info(&epc->dev, "PCI DMA ext addr > 32-bits: %u\n",
++		 (reg & PCIE_CORE_PCIE_DMA_EXT_ADDR_WGT32) != 0);
++	dev_info(&epc->dev, "PCI DMA ext attr > 32-bits: %u\n",
++		 (reg & PCIE_CORE_PCIE_DMA_EXT_ATTR_WGT32) != 0);
++}
++
+ static int rockchip_pcie_ep_start(struct pci_epc *epc)
+ {
+ 	struct rockchip_pcie_ep *ep = epc_get_drvdata(epc);
+@@ -813,6 +845,8 @@ static int rockchip_pcie_ep_probe(struct platform_device *pdev)
+ 
+ 	rockchip_pcie_ep_enable_interrupts(rockchip);
+ 
++	rockchip_pcie_ep_probe_dma(epc);
++
+ 	return 0;
+ err_epc_mem_exit:
+ 	pci_epc_mem_exit(epc);
+diff --git a/drivers/pci/controller/pcie-rockchip.h b/drivers/pci/controller/pcie-rockchip.h
+index 2c96b560c23f..27659cbe73d2 100644
+--- a/drivers/pci/controller/pcie-rockchip.h
++++ b/drivers/pci/controller/pcie-rockchip.h
+@@ -245,6 +245,23 @@
+ #define   ROCKCHIP_PCIE_EP_MSIX_CP_MASK			GENMASK(15, 8)
+ 
+ #define ROCKCHIP_PCIE_EP_DUMMY_IRQ_ADDR				0x1
++
++#define PCIE_CORE_PCIE_DMA_BASE			0xE00000
++#define PCIE_CORE_PCIE_DMA_VER			(PCIE_CORE_PCIE_DMA_BASE + 0xf8)
++#define   PCIE_CORE_PCIE_DMA_VER_MIN_MASK		GENMASK(7, 0)
++#define   PCIE_CORE_PCIE_DMA_VER_MAJ_SHIFT		8
++#define   PCIE_CORE_PCIE_DMA_VER_MAJ_MASK		GENMASK(15, 8)
++#define PCIE_CORE_PCIE_DMA_CONF			(PCIE_CORE_PCIE_DMA_BASE + 0xfc)
++#define   PCIE_CORE_PCIE_DMA_CONF_NUM_CHAN		GENMASK(3, 0)
++#define   PCIE_CORE_PCIE_DMA_NUM_PART_SHIFT		4
++#define   PCIE_CORE_PCIE_DMA_NUM_PART_MASK		GENMASK(7, 4)
++#define   PCIE_CORE_PCIE_DMA_PARTSZ_SHIFT		8
++#define   PCIE_CORE_PCIE_DMA_PARTSZ_MASK		GENMASK(11, 8)
++#define   PCIE_CORE_PCIE_DMA_SYS_ADDR_WGT32		BIT(12)
++#define   PCIE_CORE_PCIE_DMA_SYS_ATTR_WGT32		BIT(13)
++#define   PCIE_CORE_PCIE_DMA_EXT_ADDR_WGT32		BIT(14)
++#define   PCIE_CORE_PCIE_DMA_EXT_ATTR_WGT32		BIT(15)
++
+ #define ROCKCHIP_PCIE_EP_FUNC_BASE(fn) \
+ 	(PCIE_EP_PF_CONFIG_REGS_BASE + (((fn) << 12) & GENMASK(19, 12)))
+ #define ROCKCHIP_PCIE_EP_VIRT_FUNC_BASE(fn) \
+-- 
+2.39.2
+
