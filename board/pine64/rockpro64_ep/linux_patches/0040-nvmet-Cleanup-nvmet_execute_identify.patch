@@ -1,0 +1,77 @@
+From fad721fdda1718133c1f3c6d81091b950670fb50 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Wed, 15 Mar 2023 12:56:56 +0900
+Subject: [PATCH 40/42] nvmet: Cleanup nvmet_execute_identify()
+
+Change the order of the cases in nvmet_execute_identify() main
+switch-case to match the NVMe 2.0 specification order as defined in
+table 273. This is also the increasing order of CNS values.
+
+While at it, for clarity, make it explicit that identify with cns set
+to NVME_ID_CNS_CS_NS does not support NVM command set specific data.
+
+No functional changes are introduced by this cleanup.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/nvme/target/admin-cmd.c | 33 ++++++++++++++++++---------------
+ 1 file changed, 18 insertions(+), 15 deletions(-)
+
+diff --git a/drivers/nvme/target/admin-cmd.c b/drivers/nvme/target/admin-cmd.c
+index d549930c5a58..c239002967b5 100644
+--- a/drivers/nvme/target/admin-cmd.c
++++ b/drivers/nvme/target/admin-cmd.c
+@@ -661,19 +661,28 @@ static void nvmet_execute_identify(struct nvmet_req *req)
+ 	case NVME_ID_CNS_NS:
+ 		nvmet_execute_identify_ns(req);
+ 		return;
++	case NVME_ID_CNS_CTRL:
++		nvmet_execute_identify_ctrl(req);
++		return;
++	case NVME_ID_CNS_NS_ACTIVE_LIST:
++		nvmet_execute_identify_nslist(req);
++		return;
++	case NVME_ID_CNS_NS_DESC_LIST:
++		nvmet_execute_identify_desclist(req);
++		return;
+ 	case NVME_ID_CNS_CS_NS:
+-		if (IS_ENABLED(CONFIG_BLK_DEV_ZONED)) {
+-			switch (req->cmd->identify.csi) {
+-			case NVME_CSI_ZNS:
+-				return nvmet_execute_identify_cns_cs_ns(req);
+-			default:
+-				break;
++		switch (req->cmd->identify.csi) {
++		case NVME_CSI_NVM:
++			/* Not supported */
++			break;
++		case NVME_CSI_ZNS:
++			if (IS_ENABLED(CONFIG_BLK_DEV_ZONED)) {
++				nvmet_execute_identify_cns_cs_ns(req);
++				return;
+ 			}
++			break;
+ 		}
+ 		break;
+-	case NVME_ID_CNS_CTRL:
+-		nvmet_execute_identify_ctrl(req);
+-		return;
+ 	case NVME_ID_CNS_CS_CTRL:
+ 		switch (req->cmd->identify.csi) {
+ 		case NVME_CSI_NVM:
+@@ -687,12 +696,6 @@ static void nvmet_execute_identify(struct nvmet_req *req)
+ 			break;
+ 		}
+ 		break;
+-	case NVME_ID_CNS_NS_ACTIVE_LIST:
+-		nvmet_execute_identify_nslist(req);
+-		return;
+-	case NVME_ID_CNS_NS_DESC_LIST:
+-		nvmet_execute_identify_desclist(req);
+-		return;
+ 	}
+ 
+ 	nvmet_req_cns_error_complete(req);
+-- 
+2.39.2
+

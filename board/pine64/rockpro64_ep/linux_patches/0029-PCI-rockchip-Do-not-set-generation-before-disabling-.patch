@@ -1,0 +1,45 @@
+From 855ee73d11d244a09416e1614d692afde5176529 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Sun, 5 Mar 2023 12:58:59 +0900
+Subject: [PATCH 29/42] PCI: rockchip: Do not set generation before disabling
+ configuration
+
+Do not set the port generation in the PCIE_CLIENT_CONFIG register
+independently from the other fields. This ensures that the configuration
+is disabled while the PCIE_CLIENT_CONFIG register is modified when
+running as an endpoint.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/controller/pcie-rockchip.c | 12 +++++-------
+ 1 file changed, 5 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/pci/controller/pcie-rockchip.c b/drivers/pci/controller/pcie-rockchip.c
+index 1aa84035a8bc..35a5aefc348f 100644
+--- a/drivers/pci/controller/pcie-rockchip.c
++++ b/drivers/pci/controller/pcie-rockchip.c
+@@ -236,16 +236,14 @@ int rockchip_pcie_init_port(struct rockchip_pcie *rockchip)
+ 		goto err_exit_phy;
+ 	}
+ 
+-	if (rockchip->link_gen == 2)
+-		rockchip_pcie_write(rockchip, PCIE_CLIENT_GEN_SEL_2,
+-				    PCIE_CLIENT_CONFIG);
+-	else
+-		rockchip_pcie_write(rockchip, PCIE_CLIENT_GEN_SEL_1,
+-				    PCIE_CLIENT_CONFIG);
+-
+ 	regs = PCIE_CLIENT_LINK_TRAIN_ENABLE | PCIE_CLIENT_ARI_ENABLE |
+ 	       PCIE_CLIENT_CONF_LANE_NUM(rockchip->lanes);
+ 
++	if (rockchip->link_gen == 2)
++		regs |= PCIE_CLIENT_GEN_SEL_2;
++	else
++		regs |= PCIE_CLIENT_GEN_SEL_1;
++
+ 	if (rockchip->is_rc)
+ 		regs |= PCIE_CLIENT_CONF_ENABLE | PCIE_CLIENT_MODE_RC;
+ 	else
+-- 
+2.39.2
+
