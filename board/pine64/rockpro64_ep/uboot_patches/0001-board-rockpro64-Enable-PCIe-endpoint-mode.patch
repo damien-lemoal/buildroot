@@ -1,0 +1,75 @@
+From 45eee9000ebb6c3ea67bd3b1de90bfc5b1895752 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Mon, 9 Jan 2023 13:24:44 +0900
+Subject: [PATCH] board: rockpro64: Enable PCIe endpoint mode
+
+Modify DTS to use the PCIe slot as endpoint.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ arch/arm/dts/rk3399-rockpro64.dtsi | 42 +++++++++++++++++++++++-------
+ 1 file changed, 32 insertions(+), 10 deletions(-)
+
+diff --git a/arch/arm/dts/rk3399-rockpro64.dtsi b/arch/arm/dts/rk3399-rockpro64.dtsi
+index 6bff8db7d3..ee3c908ae4 100644
+--- a/arch/arm/dts/rk3399-rockpro64.dtsi
++++ b/arch/arm/dts/rk3399-rockpro64.dtsi
+@@ -219,6 +219,38 @@
+ 		regulator-max-microvolt = <1700000>;
+ 		vin-supply = <&vcc5v0_sys>;
+ 	};
++
++	bus: bus {
++		compatible = "simple-bus";
++		#address-cells = <2>;
++		#size-cells = <2>;
++		ranges;
++
++		pcie_ep0: pcie_ep@f8000000 {
++			compatible = "rockchip,rk3399-pcie-ep";
++			#address-cells = <3>;
++			#size-cells = <2>;
++			rockchip,max-outbound-regions = <16>;
++			clocks = <&cru ACLK_PCIE>, <&cru ACLK_PERF_PCIE>,
++				 <&cru PCLK_PCIE>, <&cru SCLK_PCIE_PM>;
++			clock-names = "aclk", "aclk-perf",
++				      "hclk", "pm";
++			max-functions = /bits/ 8 <8>;
++			num-lanes = <4>;
++			reg = <0x0 0xfd000000 0x0 0x1000000>, <0x0 0x00000000 0x0 0x20000>;
++			reg-names = "apb-base", "mem-base";
++			resets = <&cru SRST_PCIE_CORE>, <&cru SRST_PCIE_MGMT>,
++				 <&cru SRST_PCIE_MGMT_STICKY>, <&cru SRST_PCIE_PIPE> ,
++				 <&cru SRST_PCIE_PM>, <&cru SRST_P_PCIE>, <&cru SRST_A_PCIE>;
++			reset-names = "core", "mgmt", "mgmt-sticky", "pipe",
++				      "pm", "pclk", "aclk";
++			phys = <&pcie_phy 0>, <&pcie_phy 1>, <&pcie_phy 2>, <&pcie_phy 3>;
++			phy-names = "pcie-phy-0", "pcie-phy-1", "pcie-phy-2", "pcie-phy-3";
++			vpcie12v-supply = <&vcc12v_dcin>;
++			vpcie3v3-supply = <&vcc3v3_pcie>;
++			status = "okay";
++		};
++	};
+ };
+ 
+ &cpu_l0 {
+@@ -571,16 +603,6 @@
+ 	gpio1830-supply = <&vcc_3v0>;
+ };
+ 
+-&pcie0 {
+-	ep-gpios = <&gpio2 RK_PD4 GPIO_ACTIVE_HIGH>;
+-	num-lanes = <4>;
+-	pinctrl-names = "default";
+-	pinctrl-0 = <&pcie_perst>;
+-	vpcie12v-supply = <&vcc12v_dcin>;
+-	vpcie3v3-supply = <&vcc3v3_pcie>;
+-	status = "okay";
+-};
+-
+ &pcie_phy {
+ 	status = "okay";
+ };
+-- 
+2.39.0
+
