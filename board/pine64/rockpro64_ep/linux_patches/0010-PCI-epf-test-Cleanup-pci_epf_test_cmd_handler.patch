@@ -1,0 +1,79 @@
+From 5f7662e5bfce2afdf06e77b8e02fc7f562e0336e Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Tue, 7 Mar 2023 13:47:13 +0900
+Subject: [PATCH 10/33] PCI: epf-test: Cleanup pci_epf_test_cmd_handler()
+
+Command codes are never combined together as flags into a single value.
+Thus we can replace the series of "if" tests in
+pci_epf_test_cmd_handler() with a cleaner switch-case statement.
+This also allows checking that we got a valid command and print an error
+message if we did not.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/endpoint/functions/pci-epf-test.c | 30 +++++++++----------
+ 1 file changed, 14 insertions(+), 16 deletions(-)
+
+diff --git a/drivers/pci/endpoint/functions/pci-epf-test.c b/drivers/pci/endpoint/functions/pci-epf-test.c
+index e0cf8c2bf6db..d1b5441391fb 100644
+--- a/drivers/pci/endpoint/functions/pci-epf-test.c
++++ b/drivers/pci/endpoint/functions/pci-epf-test.c
+@@ -678,41 +678,39 @@ static void pci_epf_test_cmd_handler(struct work_struct *work)
+ 		goto reset_handler;
+ 	}
+ 
+-	if ((command & COMMAND_RAISE_LEGACY_IRQ) ||
+-	    (command & COMMAND_RAISE_MSI_IRQ) ||
+-	    (command & COMMAND_RAISE_MSIX_IRQ)) {
++	switch (command) {
++	case COMMAND_RAISE_LEGACY_IRQ:
++	case COMMAND_RAISE_MSI_IRQ:
++	case COMMAND_RAISE_MSIX_IRQ:
+ 		pci_epf_test_raise_irq(epf_test, reg);
+-		goto reset_handler;
+-	}
+-
+-	if (command & COMMAND_WRITE) {
++		break;
++	case COMMAND_WRITE:
+ 		ret = pci_epf_test_write(epf_test, reg);
+ 		if (ret)
+ 			reg->status |= STATUS_WRITE_FAIL;
+ 		else
+ 			reg->status |= STATUS_WRITE_SUCCESS;
+ 		pci_epf_test_raise_irq(epf_test, reg);
+-		goto reset_handler;
+-	}
+-
+-	if (command & COMMAND_READ) {
++		break;
++	case COMMAND_READ:
+ 		ret = pci_epf_test_read(epf_test, reg);
+ 		if (!ret)
+ 			reg->status |= STATUS_READ_SUCCESS;
+ 		else
+ 			reg->status |= STATUS_READ_FAIL;
+ 		pci_epf_test_raise_irq(epf_test, reg);
+-		goto reset_handler;
+-	}
+-
+-	if (command & COMMAND_COPY) {
++		break;
++	case COMMAND_COPY:
+ 		ret = pci_epf_test_copy(epf_test, reg);
+ 		if (!ret)
+ 			reg->status |= STATUS_COPY_SUCCESS;
+ 		else
+ 			reg->status |= STATUS_COPY_FAIL;
+ 		pci_epf_test_raise_irq(epf_test, reg);
+-		goto reset_handler;
++		break;
++	default:
++		dev_err(dev, "Invalid command\n");
++		break;
+ 	}
+ 
+ reset_handler:
+-- 
+2.39.2
+

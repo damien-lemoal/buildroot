@@ -1,0 +1,55 @@
+From 83412ffd4ec05982cffb44d28dd51e49a773f0ce Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Mon, 13 Feb 2023 21:42:45 +0900
+Subject: [PATCH 25/33] PCI: rockchip: Cleanup setting interrupt pin
+
+The PCI generic macro PCI_INTERRUPT_LINE (value 0x3c) defines the
+address of a u8 register. This differs in size from the 32-bits
+Interrupt Line and Interrupt Pin Register of the rockchip EP controller.
+Clean this up by introducing the ROCKCHIP_PCIE_EP_INT_LINE_REG,
+ROCKCHIP_PCIE_EP_INT_PIN_OFFSET and ROCKCHIP_PCIE_EP_INT_PIN_MASK macros
+to clearly define the layout of the rockchip EP controller register and
+avoid confusions with PCI-standar defined registers.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 7 +++++--
+ drivers/pci/controller/pcie-rockchip.h    | 3 +++
+ 2 files changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index fbbcd467161d..198b0ae11670 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -150,9 +150,12 @@ static int rockchip_pcie_ep_write_header(struct pci_epc *epc, u8 fn, u8 vfn,
+ 	rockchip_pcie_write(rockchip, hdr->subsys_id << 16,
+ 			    ROCKCHIP_PCIE_EP_FUNC_BASE(fn) +
+ 			    PCI_SUBSYSTEM_VENDOR_ID);
+-	rockchip_pcie_write(rockchip, hdr->interrupt_pin << 8,
++
++	reg = (hdr->interrupt_pin << ROCKCHIP_PCIE_EP_INT_PIN_OFFSET) &
++	      ROCKCHIP_PCIE_EP_INT_PIN_MASK;
++	rockchip_pcie_write(rockchip, reg,
+ 			    ROCKCHIP_PCIE_EP_FUNC_BASE(fn) +
+-			    PCI_INTERRUPT_LINE);
++			    ROCKCHIP_PCIE_EP_INT_LINE_REG);
+ 
+ 	return 0;
+ }
+diff --git a/drivers/pci/controller/pcie-rockchip.h b/drivers/pci/controller/pcie-rockchip.h
+index d78fa198cd80..29adb3e68c60 100644
+--- a/drivers/pci/controller/pcie-rockchip.h
++++ b/drivers/pci/controller/pcie-rockchip.h
+@@ -226,6 +226,9 @@
+ 
+ #define ROCKCHIP_PCIE_EP_CMD_STATUS			0x4
+ #define   ROCKCHIP_PCIE_EP_CMD_STATUS_IS		BIT(19)
++#define ROCKCHIP_PCIE_EP_INT_LINE_REG			0x3c
++#define   ROCKCHIP_PCIE_EP_INT_PIN_OFFSET		8
++#define   ROCKCHIP_PCIE_EP_INT_PIN_MASK			GENMASK(10, 8)
+ #define ROCKCHIP_PCIE_EP_MSI_CTRL_REG			0x90
+ #define   ROCKCHIP_PCIE_EP_MSI_FLAGS_OFFSET		16
+ #define   ROCKCHIP_PCIE_EP_MSI_CTRL_MMC_OFFSET		17
+-- 
+2.39.2
+

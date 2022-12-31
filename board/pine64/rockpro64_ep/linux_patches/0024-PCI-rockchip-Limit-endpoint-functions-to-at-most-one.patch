@@ -1,0 +1,31 @@
+From 7d75c2e82854f919b3f7fa7a2360ac75b8f5401f Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Tue, 7 Feb 2023 17:32:55 +0900
+Subject: [PATCH 24/33] PCI: rockchip: Limit endpoint functions to at most one
+
+The rk3399 PCI controller supports at most one physical function. So add
+a check in rockchip_pcie_parse_ep_dt() that the user is not attmepting
+to initialize more functions by specifying a max-functions property
+higher than 1.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index f62136ecdb00..fbbcd467161d 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -523,7 +523,7 @@ static int rockchip_pcie_parse_ep_dt(struct rockchip_pcie *rockchip,
+ 
+ 	err = of_property_read_u8(dev->of_node, "max-functions",
+ 				  &ep->epc->max_functions);
+-	if (err < 0)
++	if (err < 0 || ep->epc->max_functions > 1)
+ 		ep->epc->max_functions = 1;
+ 
+ 	return 0;
+-- 
+2.39.2
+

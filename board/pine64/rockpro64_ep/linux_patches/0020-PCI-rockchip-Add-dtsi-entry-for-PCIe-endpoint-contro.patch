@@ -1,0 +1,57 @@
+From bc395dcba6fc03d911efc73c3a11d768316a8c19 Mon Sep 17 00:00:00 2001
+From: Rick Wertenbroek <rick.wertenbroek@gmail.com>
+Date: Thu, 26 Jan 2023 14:50:45 +0100
+Subject: [PATCH 20/33] PCI: rockchip: Add dtsi entry for PCIe endpoint
+ controller
+
+Add missing PCIe endpoint controller entry in the device tree. This
+entry is documented in :
+Documentation/devicetree/bindings/pci/rockchip-pcie-ep.txt
+The status is disabled by default, so it will not be loaded unless
+explicitly chosen to.
+
+Signed-off-by: Rick Wertenbroek <rick.wertenbroek@gmail.com>
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ arch/arm64/boot/dts/rockchip/rk3399.dtsi | 25 ++++++++++++++++++++++++
+ 1 file changed, 25 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/rockchip/rk3399.dtsi b/arch/arm64/boot/dts/rockchip/rk3399.dtsi
+index 1881b4b71f91..c3489be3852d 100644
+--- a/arch/arm64/boot/dts/rockchip/rk3399.dtsi
++++ b/arch/arm64/boot/dts/rockchip/rk3399.dtsi
+@@ -265,6 +265,31 @@ pcie0_intc: interrupt-controller {
+ 		};
+ 	};
+ 
++	pcie0_ep: pcie-ep@f8000000 {
++		compatible = "rockchip,rk3399-pcie-ep";
++		#address-cells = <3>;
++		#size-cells = <2>;
++		rockchip,max-outbound-regions = <32>;
++		clocks = <&cru ACLK_PCIE>, <&cru ACLK_PERF_PCIE>,
++			<&cru PCLK_PCIE>, <&cru SCLK_PCIE_PM>;
++		clock-names = "aclk", "aclk-perf",
++				"hclk", "pm";
++		max-functions = /bits/ 8 <8>;
++		num-lanes = <4>;
++		reg = <0x0 0xfd000000 0x0 0x1000000>, <0x0 0xfa000000 0x0 0x2000000>;
++		reg-names = "apb-base", "mem-base";
++		resets = <&cru SRST_PCIE_CORE>, <&cru SRST_PCIE_MGMT>,
++			<&cru SRST_PCIE_MGMT_STICKY>, <&cru SRST_PCIE_PIPE> ,
++			<&cru SRST_PCIE_PM>, <&cru SRST_P_PCIE>, <&cru SRST_A_PCIE>;
++		reset-names = "core", "mgmt", "mgmt-sticky", "pipe",
++				"pm", "pclk", "aclk";
++		phys = <&pcie_phy 0>, <&pcie_phy 1>, <&pcie_phy 2>, <&pcie_phy 3>;
++		phy-names = "pcie-phy-0", "pcie-phy-1", "pcie-phy-2", "pcie-phy-3";
++		pinctrl-names = "default";
++		pinctrl-0 = <&pcie_clkreqnb_cpm>;
++		status = "disabled";
++	};
++
+ 	gmac: ethernet@fe300000 {
+ 		compatible = "rockchip,rk3399-gmac";
+ 		reg = <0x0 0xfe300000 0x0 0x10000>;
+-- 
+2.39.2
+

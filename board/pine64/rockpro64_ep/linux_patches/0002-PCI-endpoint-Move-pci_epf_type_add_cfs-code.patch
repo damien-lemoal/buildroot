@@ -1,0 +1,107 @@
+From dc82478daa368b4dc0357215de690395c8f0dbdc Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+Date: Fri, 13 Jan 2023 17:01:57 +0900
+Subject: [PATCH 02/33] PCI: endpoint: Move pci_epf_type_add_cfs() code
+
+pci_epf_type_add_cfs() is called only from pci_ep_cfs_add_type_group()
+in drivers/pci/endpoint/pci-ep-cfs.c, so there is no need to export this
+function and we can move its code from pci-epf-core.c to pci-ep-cfs.c
+as a static function.
+
+Signed-off-by: Damien Le Moal <damien.lemoal@opensource.wdc.com>
+---
+ drivers/pci/endpoint/pci-ep-cfs.c   | 20 ++++++++++++++++++
+ drivers/pci/endpoint/pci-epf-core.c | 32 -----------------------------
+ include/linux/pci-epf.h             |  2 --
+ 3 files changed, 20 insertions(+), 34 deletions(-)
+
+diff --git a/drivers/pci/endpoint/pci-ep-cfs.c b/drivers/pci/endpoint/pci-ep-cfs.c
+index b16fc6093c20..3a05e9b5a4e9 100644
+--- a/drivers/pci/endpoint/pci-ep-cfs.c
++++ b/drivers/pci/endpoint/pci-ep-cfs.c
+@@ -509,6 +509,26 @@ static const struct config_item_type pci_epf_type = {
+ 	.ct_owner	= THIS_MODULE,
+ };
+ 
++static struct config_group *pci_epf_type_add_cfs(struct pci_epf *epf,
++						 struct config_group *group)
++{
++	struct config_group *epf_type_group;
++
++	if (!epf->driver) {
++		dev_err(&epf->dev, "epf device not bound to driver\n");
++		return NULL;
++	}
++
++	if (!epf->driver->ops->add_cfs)
++		return NULL;
++
++	mutex_lock(&epf->lock);
++	epf_type_group = epf->driver->ops->add_cfs(epf, group);
++	mutex_unlock(&epf->lock);
++
++	return epf_type_group;
++}
++
+ static void pci_ep_cfs_add_type_group(struct pci_epf_group *epf_group)
+ {
+ 	struct config_group *group;
+diff --git a/drivers/pci/endpoint/pci-epf-core.c b/drivers/pci/endpoint/pci-epf-core.c
+index 2036e38be093..355a6f56fcea 100644
+--- a/drivers/pci/endpoint/pci-epf-core.c
++++ b/drivers/pci/endpoint/pci-epf-core.c
+@@ -20,38 +20,6 @@ static DEFINE_MUTEX(pci_epf_mutex);
+ static struct bus_type pci_epf_bus_type;
+ static const struct device_type pci_epf_type;
+ 
+-/**
+- * pci_epf_type_add_cfs() - Help function drivers to expose function specific
+- *                          attributes in configfs
+- * @epf: the EPF device that has to be configured using configfs
+- * @group: the parent configfs group (corresponding to entries in
+- *         pci_epf_device_id)
+- *
+- * Invoke to expose function specific attributes in configfs. If the function
+- * driver does not have anything to expose (attributes configured by user),
+- * return NULL.
+- */
+-struct config_group *pci_epf_type_add_cfs(struct pci_epf *epf,
+-					  struct config_group *group)
+-{
+-	struct config_group *epf_type_group;
+-
+-	if (!epf->driver) {
+-		dev_err(&epf->dev, "epf device not bound to driver\n");
+-		return NULL;
+-	}
+-
+-	if (!epf->driver->ops->add_cfs)
+-		return NULL;
+-
+-	mutex_lock(&epf->lock);
+-	epf_type_group = epf->driver->ops->add_cfs(epf, group);
+-	mutex_unlock(&epf->lock);
+-
+-	return epf_type_group;
+-}
+-EXPORT_SYMBOL_GPL(pci_epf_type_add_cfs);
+-
+ /**
+  * pci_epf_unbind() - Notify the function driver that the binding between the
+  *		      EPF device and EPC device has been lost
+diff --git a/include/linux/pci-epf.h b/include/linux/pci-epf.h
+index a215dc8ce693..b8441db2fa52 100644
+--- a/include/linux/pci-epf.h
++++ b/include/linux/pci-epf.h
+@@ -214,8 +214,6 @@ void pci_epf_free_space(struct pci_epf *epf, void *addr, enum pci_barno bar,
+ 			enum pci_epc_interface_type type);
+ int pci_epf_bind(struct pci_epf *epf);
+ void pci_epf_unbind(struct pci_epf *epf);
+-struct config_group *pci_epf_type_add_cfs(struct pci_epf *epf,
+-					  struct config_group *group);
+ int pci_epf_add_vepf(struct pci_epf *epf_pf, struct pci_epf *epf_vf);
+ void pci_epf_remove_vepf(struct pci_epf *epf_pf, struct pci_epf *epf_vf);
+ #endif /* __LINUX_PCI_EPF_H */
+-- 
+2.39.2
+
