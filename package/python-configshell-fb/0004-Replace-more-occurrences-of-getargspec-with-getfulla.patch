@@ -1,0 +1,82 @@
+From 343e46cbbbed339c67fe969cdf443af4c979f43e Mon Sep 17 00:00:00 2001
+From: Vojtech Trefny <vtrefny@redhat.com>
+Date: Tue, 19 Jul 2022 10:03:48 +0200
+Subject: [PATCH 4/4] Replace more occurrences of getargspec() with
+ getfullargspec()
+
+Follow up for f3ac914861bd605e3d634aeeb5e706abdbd39259, getargspec
+was used at two more places.
+
+Signed-off-by: Vojtech Trefny <vtrefny@redhat.com>
+---
+ configshell/node.py | 32 ++++++++++++++++----------------
+ 1 file changed, 16 insertions(+), 16 deletions(-)
+
+diff --git a/configshell/node.py b/configshell/node.py
+index 811a730..4f0ec9e 100644
+--- a/configshell/node.py
++++ b/configshell/node.py
+@@ -1575,12 +1575,12 @@ class ConfigNode(object):
+         @type command: str
+         '''
+         method = self.get_command_method(command)
+-        parameters, args, kwargs, default = inspect.getargspec(method)
+-        parameters = parameters[1:]
+-        if default is None:
++        spec = inspect.getfullargspec(method)
++        parameters = spec.args[1:]
++        if spec.defaults is None:
+             num_defaults = 0
+         else:
+-            num_defaults = len(default)
++            num_defaults = len(spec.defaults)
+ 
+         if num_defaults != 0:
+             required_parameters = parameters[:-num_defaults]
+@@ -1605,16 +1605,16 @@ class ConfigNode(object):
+         syntax += optional_parameters_str
+ 
+         comments = []
+-        if args is not None:
+-            syntax += "[%s...] " % args
+-        if kwargs is not None:
+-            syntax += "[%s=value...] " % (kwargs)
++        if spec.varargs is not None:
++            syntax += "[%s...] " % spec.varargs
++        if spec.varkw is not None:
++            syntax += "[%s=value...] " % (spec.varkw)
+ 
+         default_values = ''
+         if num_defaults > 0:
+             for index, param in enumerate(optional_parameters):
+-                if default[index] is not None:
+-                    default_values += "%s=%s " % (param, str(default[index]))
++                if spec.defaults[index] is not None:
++                    default_values += "%s=%s " % (param, str(spec.defaults[index]))
+ 
+         return syntax, comments, default_values
+ 
+@@ -1630,14 +1630,14 @@ class ConfigNode(object):
+         @rtype: ([str...], bool, bool)
+         '''
+         method = self.get_command_method(command)
+-        parameters, args, kwargs, default = inspect.getargspec(method)
+-        parameters = parameters[1:]
+-        if args is not None:
+-            free_pparams = args
++        spec = inspect.getfullargspec(method)
++        parameters = spec.args[1:]
++        if spec.varargs is not None:
++            free_pparams = spec.varargs
+         else:
+             free_pparams = False
+-        if kwargs is not None:
+-            free_kparams = kwargs
++        if spec.varkw is not None:
++            free_kparams = spec.varkw
+         else:
+             free_kparams = False
+         self.shell.log.debug("Signature is %s, %s, %s."
+-- 
+2.39.0
+

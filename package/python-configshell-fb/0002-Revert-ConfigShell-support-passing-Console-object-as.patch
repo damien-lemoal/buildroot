@@ -1,0 +1,40 @@
+From b4923ee5591d8b980003150e0ba6ffe512d8c9da Mon Sep 17 00:00:00 2001
+From: Maurizio Lombardi <mlombard@redhat.com>
+Date: Wed, 26 Jan 2022 09:10:39 +0100
+Subject: [PATCH 2/4] Revert "ConfigShell support passing Console object as
+ parameter"
+
+Revert because of issue #63
+
+This reverts commit fd17712b84cbb896e7532a20e5f1f691e4c33479.
+---
+ configshell/shell.py | 6 ++----
+ 1 file changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/configshell/shell.py b/configshell/shell.py
+index be84b40..437186d 100644
+--- a/configshell/shell.py
++++ b/configshell/shell.py
+@@ -101,7 +101,7 @@ class ConfigShell(object):
+     _current_token = ''
+     _current_completions = []
+ 
+-    def __init__(self, preferences_dir=None, console=None):
++    def __init__(self, preferences_dir=None):
+         '''
+         Creates a new ConfigShell.
+         @param preferences_dir: Directory to load/save preferences from/to
+@@ -177,9 +177,7 @@ class ConfigShell(object):
+             if pref not in self.prefs:
+                 self.prefs[pref] = value
+ 
+-        if console is None:
+-            console = console.Console()
+-        self.con = console
++        self.con = console.Console()
+ 
+     # Private methods
+ 
+-- 
+2.39.0
+

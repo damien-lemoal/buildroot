@@ -1,0 +1,41 @@
+From f3ac914861bd605e3d634aeeb5e706abdbd39259 Mon Sep 17 00:00:00 2001
+From: Maurizio Lombardi <mlombard@redhat.com>
+Date: Wed, 29 Jun 2022 14:38:42 +0200
+Subject: [PATCH 3/4] replace getargspec() with getfullargspec()
+
+inspect.getargspec() doesn't work anymore with Python3.11
+
+Signed-off-by: Maurizio Lombardi <mlombard@redhat.com>
+---
+ configshell/node.py | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/configshell/node.py b/configshell/node.py
+index 6af8642..811a730 100644
+--- a/configshell/node.py
++++ b/configshell/node.py
+@@ -1417,10 +1417,10 @@ class ConfigNode(object):
+         @type kparams: dict
+         @raise ExecutionError: When the check fails.
+         '''
+-        spec = inspect.getargspec(method)
++        spec = inspect.getfullargspec(method)
+         args = spec.args[1:]
+         pp = spec.varargs
+-        kw = spec.keywords
++        kw = spec.varkw
+ 
+         if spec.defaults is None:
+             nb_opt_params = 0
+@@ -1460,7 +1460,7 @@ class ConfigNode(object):
+                 "Missing required parameters %s"
+                 % ", ".join("'%s'" % missing for missing in missing_params))
+ 
+-        if spec.keywords is None:
++        if kw is None:
+             if len(unexpected_keywords) == 1:
+                 raise ExecutionError(
+                     "Unexpected keyword parameter '%s'."
+-- 
+2.39.0
+
