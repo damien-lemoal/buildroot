@@ -1,0 +1,41 @@
+From fd17712b84cbb896e7532a20e5f1f691e4c33479 Mon Sep 17 00:00:00 2001
+From: "mingzhe.zou@easystack.cn" <mingzhe.zou@easystack.cn>
+Date: Fri, 22 Oct 2021 12:46:05 +0800
+Subject: [PATCH 1/4] ConfigShell support passing Console object as parameter
+
+Setting preference maybe rollback when execute multiple targetcli requests concurrently.
+Please see https://github.com/open-iscsi/targetcli-fb/issues/188 for details.
+In order to solve this problem we must first initialize a Console object.
+
+Signed-off-by: Zou Mingzhe <mingzhe.zou@easystack.cn>
+---
+ configshell/shell.py | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/configshell/shell.py b/configshell/shell.py
+index 437186d..be84b40 100644
+--- a/configshell/shell.py
++++ b/configshell/shell.py
+@@ -101,7 +101,7 @@ class ConfigShell(object):
+     _current_token = ''
+     _current_completions = []
+ 
+-    def __init__(self, preferences_dir=None):
++    def __init__(self, preferences_dir=None, console=None):
+         '''
+         Creates a new ConfigShell.
+         @param preferences_dir: Directory to load/save preferences from/to
+@@ -177,7 +177,9 @@ class ConfigShell(object):
+             if pref not in self.prefs:
+                 self.prefs[pref] = value
+ 
+-        self.con = console.Console()
++        if console is None:
++            console = console.Console()
++        self.con = console
+ 
+     # Private methods
+ 
+-- 
+2.39.0
+
