@@ -1,0 +1,150 @@
+#!/bin/sh
+
+cmd="$(basename $0)"
+
+FUNC="pci_epf_test.0"
+debug_epf=0
+debug_pci=0
+
+function exit_failed()
+{
+	echo "$1"
+	exit 1
+}
+
+function usage()
+{
+	echo "Usage:"
+	echo "    ${cmd} [-h | --help]"
+	echo "    ${cmd} [start options] start"
+	echo "    ${cmd} stop"
+	echo "Start options:"
+	echo "  --debug-epf: Turn on test epf kernel debug messages"
+	echo "  --debug-pci: Turn on pci controller kernel debug messages"
+	echo "  -d | --debug: Turn on test epf and pci controller kernel debug messages"
+}
+
+# Check options
+while [ "${1#-}" != "$1" ]; do
+	case "$1" in
+	-h | --help)
+		usage
+		exit 0
+		;;
+	--debug-epf)
+		debug_epf=1
+		shift
+		;;
+	--debug-pci)
+		debug_pci=1
+		shift
+		;;
+	-d | --debug)
+		debug_epf=1
+		debug_pci=1
+		shift
+		;;
+	-*)
+		echo "Unknow option $1"
+		exit 1
+		;;
+	esac
+done
+
+if [ "$1" == "" ]; then
+	usage
+	exit 1
+fi
+
+action="$1"
+
+function test_epf_start()
+{
+	# Check controller
+	cd /sys/kernel/config/pci_ep || \
+		exit_failed "Missing PCI-EP"
+
+	controller="$(find controllers -name "*pcie*")"
+	if [ -z "${controller}" ]; then
+		exit_failed "PCI EP Controller not found"
+	fi
+
+	# Load modules
+	echo "Loading pci-epf-test"
+	modprobe pci-epf-test || \
+		exit_failed "Load pci-epf-test failed"
+
+	# Enable pr_debug
+	if [ "${debug_epf}" == "1" ]; then
+		echo 8 > "/proc/sys/kernel/printk"
+		echo -n 'module pci_epf_test +p;' > \
+			"/sys/kernel/debug/dynamic_debug/control"
+	fi
+
+	if [ "${debug_pci}" == "1" ]; then
+		echo 8 > "/proc/sys/kernel/printk"
+		echo -n 'file drivers/pci/controller/pcie-rockchip-ep.c +p;' > \
+			"/sys/kernel/debug/dynamic_debug/control"
+	fi
+
+	# Setup the test endpoint function
+	echo "Creating test endpoint ${FUNC}"
+	mkdir "functions/pci_epf_test/${FUNC}" || \
+		exit_failed "Create function 0 failed"
+
+	echo 0x104c > "functions/pci_epf_test/${FUNC}/vendorid" || \
+		exit_failed "Set vendorid failed"
+	echo 0xb500 > "functions/pci_epf_test/${FUNC}/deviceid" || \
+		exit_failed "Set deviceid failed"
+	echo 32 > "functions/pci_epf_test/${FUNC}/msi_interrupts" || \
+		exit_failed "Set msi_interrupts failed"
+
+	echo "Attach test endpoint ${FUNC} to EP controller ${controller}"
+	ln -s "functions/pci_epf_test/${FUNC}" "${controller}/" || \
+		exit_failed "Attach ${FUNC} to EP controller failed"
+
+	echo "Starting PCI EP controller"
+	echo 1 > "${controller}/start" || \
+		exit_failed "Start PCI EP controller failed"
+}
+
+function test_epf_stop()
+{
+	# Check controller
+	cd /sys/kernel/config/pci_ep || \
+		exit_failed "Missing PCI-EP"
+
+	controller="$(find controllers -name "*pcie*")"
+	if [ -z "${controller}" ]; then
+		exit_failed "PCI EP Controller not found"
+	fi
+
+	# Teardown the test endpoint function
+	echo "Stopping PCI EP controller"
+	echo 0 > "${controller}/start" || \
+		exit_failed "Stop PCI EP controller failed"
+
+	echo "Detach test endpoint ${FUNC} from EP controller ${controller}"
+	rm "${controller}/${FUNC}" || \
+		exit_failed "Detach ${FUNC} from EP controller failed"
+
+	echo "Destroying test endpoint ${FUNC}"
+	rmdir "functions/pci_epf_test/${FUNC}" || \
+		exit_failed "Remove function 0 failed"
+
+	rmmod pci-epf-test
+}
+
+case "${action}" in
+start)
+	test_epf_start
+	;;
+stop)
+	test_epf_stop
+	;;
+*)
+	echo "Unknow action ${action}"
+	exit 1
+	;;
+esac
+
