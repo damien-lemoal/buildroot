@@ -649,6 +649,7 @@ F:	package/libvdpau/
 F:	package/log4cpp/
 
 N:	Damien Le Moal <damien.lemoal@wdc.com>
+F:	package/python-nvmetcli/
 F:	package/python-kflash/
 F:	board/canaan/
 F:	configs/canaan_kd233_defconfig
