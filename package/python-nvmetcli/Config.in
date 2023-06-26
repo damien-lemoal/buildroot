@@ -1,6 +1,0 @@
-config BR2_PACKAGE_PYTHON_NVMETCLI
-	bool "python-nvmetcli"
-	help
-	  An adminstration shell for NVMe storage targets.
-
-	  http://git.infradead.org/users/hch/nvmetcli.git
