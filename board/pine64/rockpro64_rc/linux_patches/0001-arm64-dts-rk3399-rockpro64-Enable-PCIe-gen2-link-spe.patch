@@ -1,0 +1,27 @@
+From 3d9cec13dea9207bff9f8b66d080b17240ed3124 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Sun, 13 Aug 2023 15:46:24 +0900
+Subject: [PATCH] arm64: dts: rk3399-rockpro64: Enable PCIe gen2 link speed
+
+Set the PCIe root complex maximum link speed to gen2.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ arch/arm64/boot/dts/rockchip/rk3399-rockpro64.dtsi | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/arch/arm64/boot/dts/rockchip/rk3399-rockpro64.dtsi b/arch/arm64/boot/dts/rockchip/rk3399-rockpro64.dtsi
+index bca2b50e0a93..a85c3ae535b5 100644
+--- a/arch/arm64/boot/dts/rockchip/rk3399-rockpro64.dtsi
++++ b/arch/arm64/boot/dts/rockchip/rk3399-rockpro64.dtsi
+@@ -663,6 +663,7 @@ &pcie0 {
+ 	pinctrl-0 = <&pcie_perst>;
+ 	vpcie12v-supply = <&vcc12v_dcin>;
+ 	vpcie3v3-supply = <&vcc3v3_pcie>;
++	max-link-speed = <2>;
+ 	status = "okay";
+ };
+ 
+-- 
+2.41.0
+
