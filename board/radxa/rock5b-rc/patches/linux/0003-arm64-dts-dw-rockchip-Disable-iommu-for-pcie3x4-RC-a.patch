@@ -1,0 +1,47 @@
+From 13360ef24c37b0a996aa9ae142749cdfc24c4b9d Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <cassel@kernel.org>
+Date: Thu, 6 Feb 2025 09:11:29 +0100
+Subject: [PATCH] arm64: dts: dw-rockchip: Disable iommu for pcie3x4 RC and EP
+
+Signed-off-by: Niklas Cassel <cassel@kernel.org>
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ arch/arm64/boot/dts/rockchip/rk3588-base.dtsi  | 1 +
+ arch/arm64/boot/dts/rockchip/rk3588-extra.dtsi | 2 --
+ 2 files changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/rockchip/rk3588-base.dtsi b/arch/arm64/boot/dts/rockchip/rk3588-base.dtsi
+index 8cfa30837ce7..e0906d0126bd 100644
+--- a/arch/arm64/boot/dts/rockchip/rk3588-base.dtsi
++++ b/arch/arm64/boot/dts/rockchip/rk3588-base.dtsi
+@@ -555,6 +555,7 @@ mmu600_pcie: iommu@fc900000 {
+ 			     <GIC_SPI 367 IRQ_TYPE_LEVEL_HIGH 0>;
+ 		interrupt-names = "eventq", "gerror", "priq", "cmdq-sync";
+ 		#iommu-cells = <1>;
++		status = "disabled";
+ 	};
+ 
+ 	mmu600_php: iommu@fcb00000 {
+diff --git a/arch/arm64/boot/dts/rockchip/rk3588-extra.dtsi b/arch/arm64/boot/dts/rockchip/rk3588-extra.dtsi
+index 4a950907ea6f..f308a9bee743 100644
+--- a/arch/arm64/boot/dts/rockchip/rk3588-extra.dtsi
++++ b/arch/arm64/boot/dts/rockchip/rk3588-extra.dtsi
+@@ -162,7 +162,6 @@ pcie3x4: pcie@fe150000 {
+ 		linux,pci-domain = <0>;
+ 		max-link-speed = <3>;
+ 		msi-map = <0x0000 &its1 0x0000 0x1000>;
+-		iommu-map = <0x0000 &mmu600_pcie 0x0000 0x1000>;
+ 		num-lanes = <4>;
+ 		phys = <&pcie30phy>;
+ 		phy-names = "pcie-phy";
+@@ -213,7 +212,6 @@ pcie3x4_ep: pcie-ep@fe150000 {
+ 		interrupt-names = "sys", "pmc", "msg", "legacy", "err",
+ 				  "dma0", "dma1", "dma2", "dma3";
+ 		max-link-speed = <3>;
+-		iommus = <&mmu600_pcie 0x0000>;
+ 		num-lanes = <4>;
+ 		phys = <&pcie30phy>;
+ 		phy-names = "pcie-phy";
+-- 
+2.48.1
+
