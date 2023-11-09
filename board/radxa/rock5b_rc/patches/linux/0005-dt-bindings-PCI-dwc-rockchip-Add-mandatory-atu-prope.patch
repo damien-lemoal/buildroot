@@ -1,0 +1,64 @@
+From a3418169b5e7893b1bda67ee5e4aa0aadc38af92 Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <niklas.cassel@wdc.com>
+Date: Tue, 24 Oct 2023 16:26:44 +0200
+Subject: [PATCH 05/14] dt-bindings: PCI: dwc: rockchip: Add mandatory atu
+ property
+
+Even though rockchip-dw-pcie.yaml inherits snps,dw-pcie.yaml
+using:
+
+allOf:
+  - $ref: /schemas/pci/snps,dw-pcie.yaml#
+
+and snps,dw-pcie.yaml does have the atu property defined, in order to be
+able to use this property, while still making sure 'make CHECK_DTBS=y'
+pass, we need to add this property to rockchip-dw-pcie.yaml.
+
+All compatible strings (rockchip,rk3568-pcie and rockchip,rk3588-pcie)
+should have this property.
+
+The regs in the example are updated to actually match pcie3x2 on rk3568.
+
+Signed-off-by: Niklas Cassel <niklas.cassel@wdc.com>
+---
+ .../devicetree/bindings/pci/rockchip-dw-pcie.yaml     | 11 +++++++----
+ 1 file changed, 7 insertions(+), 4 deletions(-)
+
+diff --git a/Documentation/devicetree/bindings/pci/rockchip-dw-pcie.yaml b/Documentation/devicetree/bindings/pci/rockchip-dw-pcie.yaml
+index 1ae8dcfa072c..6ca87ff4ae20 100644
+--- a/Documentation/devicetree/bindings/pci/rockchip-dw-pcie.yaml
++++ b/Documentation/devicetree/bindings/pci/rockchip-dw-pcie.yaml
+@@ -33,12 +33,14 @@ properties:
+       - description: Data Bus Interface (DBI) registers
+       - description: Rockchip designed configuration registers
+       - description: Config registers
++      - description: iATU/eDMA registers
+ 
+   reg-names:
+     items:
+       - const: dbi
+       - const: apb
+       - const: config
++      - const: atu
+ 
+   clocks:
+     minItems: 5
+@@ -171,10 +173,11 @@ examples:
+ 
+         pcie3x2: pcie@fe280000 {
+             compatible = "rockchip,rk3568-pcie";
+-            reg = <0x3 0xc0800000 0x0 0x390000>,
+-                  <0x0 0xfe280000 0x0 0x10000>,
+-                  <0x3 0x80000000 0x0 0x100000>;
+-            reg-names = "dbi", "apb", "config";
++            reg = <0x3 0xc0800000 0x0 0x00300000>,
++                  <0x0 0xfe280000 0x0 0x00010000>,
++                  <0x0 0xf0000000 0x0 0x00100000>,
++                  <0x3 0xc0b00000 0x0 0x00100000>;
++            reg-names = "dbi", "apb", "config", "atu";
+             bus-range = <0x20 0x2f>;
+             clocks = <&cru 143>, <&cru 144>,
+                      <&cru 145>, <&cru 146>,
+-- 
+2.41.0
+

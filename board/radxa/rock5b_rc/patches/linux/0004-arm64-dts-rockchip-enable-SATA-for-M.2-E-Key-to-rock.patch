@@ -1,0 +1,46 @@
+From a7125a003ed83c0841d85e9627330d55338b2388 Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <niklas.cassel@wdc.com>
+Date: Tue, 17 Oct 2023 23:19:40 +0200
+Subject: [PATCH 04/14] arm64: dts: rockchip: enable SATA for M.2 E-Key to
+ rock-5b
+
+We need to disable pcie2x1l0 in order to enable the onboard SATA
+controller, as the top M.2 E-Key slot can be used by either the onboard
+PCIe controller or the onboard SATA controller, but not both.
+
+The M.2 E-Key slot is connected to a rockchip USB/PCIe/SATA combo PHY.
+The SATA device tree node has a phandle to the combophy and supplies
+the PHY mode which the PHY should be configured in (PHY_TYPE_SATA).
+
+Signed-off-by: Niklas Cassel <niklas.cassel@wdc.com>
+---
+ arch/arm64/boot/dts/rockchip/rk3588-rock-5b.dts | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/rockchip/rk3588-rock-5b.dts b/arch/arm64/boot/dts/rockchip/rk3588-rock-5b.dts
+index 947a5ebe5bb3..7987483d6e08 100644
+--- a/arch/arm64/boot/dts/rockchip/rk3588-rock-5b.dts
++++ b/arch/arm64/boot/dts/rockchip/rk3588-rock-5b.dts
+@@ -123,6 +123,10 @@ &combphy1_ps {
+ 	status = "okay";
+ };
+ 
++&sata1 {
++	status = "okay";
++};
++
+ &cpu_b0 {
+ 	cpu-supply = <&vdd_cpu_big0_s0>;
+ };
+@@ -254,7 +258,7 @@ &pcie2x1l0 {
+ 	pinctrl-0 = <&pcie2_0_rst>;
+ 	reset-gpios = <&gpio4 RK_PA5 GPIO_ACTIVE_HIGH>;
+ 	vpcie3v3-supply = <&vcc3v3_pcie2x1l0>;
+-	status = "okay";
++	status = "disabled";
+ };
+ 
+ &pcie2x1l2 {
+-- 
+2.41.0
+
