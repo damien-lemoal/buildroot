@@ -1,0 +1,124 @@
+From 8da68960e4d044ed880329da51ee47e654e57c03 Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <niklas.cassel@wdc.com>
+Date: Wed, 6 Dec 2023 11:42:47 +0100
+Subject: [PATCH 41/50] PCI: dw-rockchip: Reinitialize registers that on a
+ link-down reset
+
+Signed-off-by: Niklas Cassel <niklas.cassel@wdc.com>
+---
+ .../pci/controller/dwc/pcie-designware-ep.c   | 42 -------------------
+ drivers/pci/controller/dwc/pcie-dw-rockchip.c | 33 ++++++++++++---
+ 2 files changed, 28 insertions(+), 47 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-designware-ep.c b/drivers/pci/controller/dwc/pcie-designware-ep.c
+index 1b12529a6136..e6ca20d55935 100644
+--- a/drivers/pci/controller/dwc/pcie-designware-ep.c
++++ b/drivers/pci/controller/dwc/pcie-designware-ep.c
+@@ -707,31 +707,6 @@ static unsigned int dw_pcie_ep_find_ext_capability(struct dw_pcie *pci, int cap)
+ 	return 0;
+ }
+ 
+-#if 0
+-/*
+- * Return the capability which has CAP as the next cap
+- */
+-static unsigned int dw_pcie_ep_find_ext_capability_with_next(struct dw_pcie *pci, int cap)
+-{
+-	u32 header;
+-	int pos = PCI_CFG_SPACE_SIZE;
+-	int prev_pos = PCI_CFG_SPACE_SIZE;
+-
+-	while (pos) {
+-		header = dw_pcie_readl_dbi(pci, pos);
+-		if (PCI_EXT_CAP_ID(header) == cap)
+-			return prev_pos;
+-
+-		prev_pos = pos;
+-		pos = PCI_EXT_CAP_NEXT(header);
+-		if (!pos)
+-			break;
+-	}
+-
+-	return 0;
+-}
+-#endif
+-
+ int dw_pcie_ep_init_complete(struct dw_pcie_ep *ep)
+ {
+ 	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
+@@ -775,23 +750,6 @@ int dw_pcie_ep_init_complete(struct dw_pcie_ep *ep)
+ 	}
+ #endif
+ 
+-#if 0
+-	if (offset) {
+-		//if we have RESBAR, find the CAP that has RESBAR in next ptr
+-		u32 cap_before_resbar_offset;
+-		u32 cap_after_resbar_offset;
+-		u32 header_cap_before_resbar;
+-		u32 header_cap_resbar;
+-		cap_before_resbar_offset = dw_pcie_ep_find_ext_capability_with_next(pci, PCI_EXT_CAP_ID_REBAR);
+-		header_cap_before_resbar = dw_pcie_readl_dbi(pci, cap_before_resbar_offset);
+-		header_cap_resbar = dw_pcie_readl_dbi(pci, offset);
+-		cap_after_resbar_offset = PCI_EXT_CAP_NEXT(header_cap_resbar);
+-		header_cap_before_resbar &= 0x000fffff;
+-		header_cap_before_resbar |= (cap_after_resbar_offset << 20);
+-		dw_pcie_writel_dbi(pci, cap_before_resbar_offset, header_cap_before_resbar);
+-	}
+-#endif
+-
+ 	/*
+ 	 * PTM responder capability can be disabled only after disabling
+ 	 * PTM root capability.
+diff --git a/drivers/pci/controller/dwc/pcie-dw-rockchip.c b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+index 64c959fb085f..23eee0c46810 100644
+--- a/drivers/pci/controller/dwc/pcie-dw-rockchip.c
++++ b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+@@ -433,16 +433,39 @@ static irqreturn_t rockchip_pcie_sys_irq_handler(int irq, void *arg)
+ 	u32 val;
+ 
+ 	reg = rockchip_pcie_readl_apb(rockchip, PCIE_CLIENT_INTR_STATUS_MISC);
+-	pr_err("pci: PCIE_CLIENT_INTR_STATUS_MISC: %#x\n", reg);
+-	pr_err("LTSSM_STATUS: %#x\n",
++
++	pr_info("pci: PCIE_CLIENT_INTR_STATUS_MISC: %#x\n", reg);
++	pr_info("LTSSM_STATUS: %#x\n",
+ 	       rockchip_pcie_readl_apb(rockchip, PCIE_CLIENT_LTSSM_STATUS));
+ 
+ 	if (reg & BIT(2)) {
++		unsigned int offset, nbars;
++		int i;
++
+ 		val = rockchip_pcie_readl_apb(rockchip, PCIE_CLIENT_LTSSM_STATUS);
+ 		pr_err("pci: hot reset or link-down reset (LTSSM_STATUS: %#x)\n", val);
+-		pr_err("pci: if you see this, then reboot the box with the RC\n");
+-		pr_err("pci: all BAR addresses assigned by RC will be cleared\n");
+-		pr_err("pci: and there is no way that the EP can restore them\n");
++
++		offset = dw_pcie_find_ext_capability(pci, PCI_EXT_CAP_ID_REBAR);
++		val = dw_pcie_readl_dbi(pci, offset + PCI_REBAR_CTRL);
++		nbars = (val & PCI_REBAR_CTRL_NBAR_MASK) >>
++			PCI_REBAR_CTRL_NBAR_SHIFT;
++
++		//todo: clear them to same as fixed size?
++		//or drop fixed size...?
++		for (i = 0; i < nbars; i++, offset += PCI_REBAR_CTRL) {
++			dw_pcie_writel_dbi(pci, offset + PCI_REBAR_CTRL, 0x0); // clear, 1MB
++			pr_err("pci: BAR%d CAP: %#x CTRL: %#x\n",
++			       i,
++			       dw_pcie_readl_dbi(pci, offset + PCI_REBAR_CAP),
++			       dw_pcie_readl_dbi(pci, offset + PCI_REBAR_CTRL));
++		}
++
++		/* Setup command register */
++		val = dw_pcie_readl_dbi(pci, PCI_COMMAND);
++		val &= 0xffff0000;
++		val |= PCI_COMMAND_IO | PCI_COMMAND_MEMORY |
++		       PCI_COMMAND_MASTER | PCI_COMMAND_SERR;
++		dw_pcie_writel_dbi(pci, PCI_COMMAND, val);
+ 	}
+ 
+ 	if (reg & PCIE_RDLH_LINK_UP_CHGED) {
+-- 
+2.43.0
+
