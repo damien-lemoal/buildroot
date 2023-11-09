@@ -1,0 +1,50 @@
+From 53079676f41c82135ce73b0518ab245206001bf0 Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <niklas.cassel@wdc.com>
+Date: Fri, 20 Oct 2023 16:55:46 +0200
+Subject: [PATCH 10/14] arm64: dts: rockchip: add missing rk3588 PCIe eDMA
+ interrupts
+
+The rk3588 has 5 PCIe controllers, however, according the the rk3588 TRM
+(Technical Reference Manual), only pcie3x4 has dedicated interrupts wired
+to embedded DMA controller (eDMA) on the DWC PCIe controller.
+
+The eDMA on pcie3x4 has two DMA read channels and two DMA write channels,
+and according to snps,dw-pcie.yaml, the IRQs for the write channels have
+to be specified before the IRQs for the read channels in "interrupts".
+
+On the rk3588 based rock-5b board, when building with CONFIG_DW_EDMA=y:
+Before this patch, only the iATUs are detected:
+rockchip-dw-pcie a40000000.pcie: iATU: unroll T, 16 ob, 16 ib, align 64K, limit 8G
+
+After this patch, both the iATUs and the eDMA channels are detected:
+rockchip-dw-pcie a40000000.pcie: iATU: unroll T, 16 ob, 16 ib, align 64K, limit 8G
+rockchip-dw-pcie a40000000.pcie: eDMA: unroll T, 2 wr, 2 rd
+
+Signed-off-by: Niklas Cassel <niklas.cassel@wdc.com>
+---
+ arch/arm64/boot/dts/rockchip/rk3588.dtsi | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/rockchip/rk3588.dtsi b/arch/arm64/boot/dts/rockchip/rk3588.dtsi
+index 28955acda9f2..9b042f97f8c8 100644
+--- a/arch/arm64/boot/dts/rockchip/rk3588.dtsi
++++ b/arch/arm64/boot/dts/rockchip/rk3588.dtsi
+@@ -101,8 +101,13 @@ pcie3x4: pcie@fe150000 {
+ 			     <GIC_SPI 262 IRQ_TYPE_LEVEL_HIGH 0>,
+ 			     <GIC_SPI 261 IRQ_TYPE_LEVEL_HIGH 0>,
+ 			     <GIC_SPI 260 IRQ_TYPE_LEVEL_HIGH 0>,
+-			     <GIC_SPI 259 IRQ_TYPE_LEVEL_HIGH 0>;
+-		interrupt-names = "sys", "pmc", "msg", "legacy", "err";
++			     <GIC_SPI 259 IRQ_TYPE_LEVEL_HIGH 0>,
++			     <GIC_SPI 271 IRQ_TYPE_LEVEL_HIGH 0>,
++			     <GIC_SPI 272 IRQ_TYPE_LEVEL_HIGH 0>,
++			     <GIC_SPI 269 IRQ_TYPE_LEVEL_HIGH 0>,
++			     <GIC_SPI 270 IRQ_TYPE_LEVEL_HIGH 0>;
++		interrupt-names = "sys", "pmc", "msg", "legacy", "err",
++				  "dma0", "dma1", "dma2", "dma3";
+ 		#interrupt-cells = <1>;
+ 		interrupt-map-mask = <0 0 0 7>;
+ 		interrupt-map = <0 0 0 1 &pcie3x4_intc 0>,
+-- 
+2.41.0
+

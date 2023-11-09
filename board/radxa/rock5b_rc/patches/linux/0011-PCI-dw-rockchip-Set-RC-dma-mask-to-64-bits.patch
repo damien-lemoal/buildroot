@@ -1,0 +1,34 @@
+From 651a2d93cd7d322a22a4e93cbd3d50fb54ca1873 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Wed, 13 Dec 2023 17:20:07 +0900
+Subject: [PATCH] PCI: dw-rockchip: Set RC dma mask to 64-bits
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/dwc/pcie-dw-rockchip.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-dw-rockchip.c b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+index 2fe42c70097f..fb0e884c5120 100644
+--- a/drivers/pci/controller/dwc/pcie-dw-rockchip.c
++++ b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+@@ -339,9 +339,14 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
+ 		goto deinit_phy;
+ 
+ 	ret = dw_pcie_host_init(pp);
+-	if (!ret)
+-		return 0;
++	if (ret)
++		goto clk_unprepare;
++
++	dma_set_mask_and_coherent(dev, DMA_BIT_MASK(64));
++
++	return 0;
+ 
++clk_unprepare:
+ 	clk_bulk_disable_unprepare(rockchip->clk_cnt, rockchip->clks);
+ deinit_phy:
+ 	rockchip_pcie_phy_deinit(rockchip);
+-- 
+2.43.0
+

@@ -1,0 +1,71 @@
+From fb618e16340131de9ccff7cae00679d6b8593d67 Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <niklas.cassel@wdc.com>
+Date: Thu, 26 Oct 2023 13:31:31 +0200
+Subject: [PATCH 07/14] arm64: dts: rockchip: drop unused properties
+ num-{ib,ob}-windows
+
+The properties num-ib-windows and num-ob-windows have been deprecated for
+a long time, and since commit 281f1f99cf3a ("PCI: dwc: Detect number of
+iATU windows"), these properties are no longer used by the driver.
+
+The correct number of inbound and outbound iATUs are now detected at
+runtime. Thus, drop these unused properties.
+
+Signed-off-by: Niklas Cassel <niklas.cassel@wdc.com>
+---
+ arch/arm64/boot/dts/rockchip/rk3568-nanopi-r5s.dts | 2 --
+ arch/arm64/boot/dts/rockchip/rk3568.dtsi           | 4 ----
+ arch/arm64/boot/dts/rockchip/rk356x.dtsi           | 2 --
+ 3 files changed, 8 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/rockchip/rk3568-nanopi-r5s.dts b/arch/arm64/boot/dts/rockchip/rk3568-nanopi-r5s.dts
+index b6ad8328c7eb..da4927a35142 100644
+--- a/arch/arm64/boot/dts/rockchip/rk3568-nanopi-r5s.dts
++++ b/arch/arm64/boot/dts/rockchip/rk3568-nanopi-r5s.dts
+@@ -102,8 +102,6 @@ &pcie3x1 {
+ 
+ &pcie3x2 {
+ 	num-lanes = <1>;
+-	num-ib-windows = <8>;
+-	num-ob-windows = <8>;
+ 	reset-gpios = <&gpio2 RK_PD6 GPIO_ACTIVE_HIGH>;
+ 	vpcie3v3-supply = <&vcc3v3_pcie>;
+ 	status = "okay";
+diff --git a/arch/arm64/boot/dts/rockchip/rk3568.dtsi b/arch/arm64/boot/dts/rockchip/rk3568.dtsi
+index f1be76a54ceb..4487754065b7 100644
+--- a/arch/arm64/boot/dts/rockchip/rk3568.dtsi
++++ b/arch/arm64/boot/dts/rockchip/rk3568.dtsi
+@@ -84,8 +84,6 @@ pcie3x1: pcie@fe270000 {
+ 				<0 0 0 3 &pcie3x1_intc 2>,
+ 				<0 0 0 4 &pcie3x1_intc 3>;
+ 		linux,pci-domain = <1>;
+-		num-ib-windows = <6>;
+-		num-ob-windows = <2>;
+ 		max-link-speed = <3>;
+ 		msi-map = <0x0 &gic 0x1000 0x1000>;
+ 		num-lanes = <1>;
+@@ -137,8 +135,6 @@ pcie3x2: pcie@fe280000 {
+ 				<0 0 0 3 &pcie3x2_intc 2>,
+ 				<0 0 0 4 &pcie3x2_intc 3>;
+ 		linux,pci-domain = <2>;
+-		num-ib-windows = <6>;
+-		num-ob-windows = <2>;
+ 		max-link-speed = <3>;
+ 		msi-map = <0x0 &gic 0x2000 0x1000>;
+ 		num-lanes = <2>;
+diff --git a/arch/arm64/boot/dts/rockchip/rk356x.dtsi b/arch/arm64/boot/dts/rockchip/rk356x.dtsi
+index abee88911982..e2d99613109b 100644
+--- a/arch/arm64/boot/dts/rockchip/rk356x.dtsi
++++ b/arch/arm64/boot/dts/rockchip/rk356x.dtsi
+@@ -985,8 +985,6 @@ pcie2x1: pcie@fe260000 {
+ 				<0 0 0 3 &pcie_intc 2>,
+ 				<0 0 0 4 &pcie_intc 3>;
+ 		linux,pci-domain = <0>;
+-		num-ib-windows = <6>;
+-		num-ob-windows = <2>;
+ 		max-link-speed = <2>;
+ 		msi-map = <0x0 &gic 0x0 0x1000>;
+ 		num-lanes = <1>;
+-- 
+2.41.0
+
