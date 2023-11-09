@@ -1,0 +1,35 @@
+From 163f2b2fb2695852c8f1e45080677a4c2b6a476a Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Fri, 22 Dec 2023 14:59:30 +0900
+Subject: [PATCH 49/49] rock5b rc link training
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/dwc/pcie-designware.c | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-designware.c b/drivers/pci/controller/dwc/pcie-designware.c
+index 250cf7f40b85..cb4c4f60d66c 100644
+--- a/drivers/pci/controller/dwc/pcie-designware.c
++++ b/drivers/pci/controller/dwc/pcie-designware.c
+@@ -652,8 +652,15 @@ int dw_pcie_wait_for_link(struct dw_pcie *pci)
+ 
+ 	/* Check if the link is up or not */
+ 	for (retries = 0; retries < LINK_WAIT_MAX_RETRIES; retries++) {
+-		if (dw_pcie_link_up(pci))
+-			break;
++		if (dw_pcie_link_up(pci)) {
++			/*
++			 * Check again after waiting for ltssm to go through
++			 * the different gen training.
++			 */
++			usleep_range(LINK_WAIT_USLEEP_MIN, LINK_WAIT_USLEEP_MAX);
++			if (dw_pcie_link_up(pci))
++				break;
++		}
+ 
+ 		usleep_range(LINK_WAIT_USLEEP_MIN, LINK_WAIT_USLEEP_MAX);
+ 	}
+-- 
+2.43.0
+
