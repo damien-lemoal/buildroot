@@ -1,0 +1,73 @@
+From 2016fc3caf619f15fc095a6c65815e5ed9f2f067 Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <niklas.cassel@wdc.com>
+Date: Tue, 24 Oct 2023 16:27:33 +0200
+Subject: [PATCH 06/14] dt-bindings: PCI: dwc: rockchip: Add optional dma
+ interrupts
+
+Even though rockchip-dw-pcie.yaml inherits snps,dw-pcie.yaml
+using:
+
+allOf:
+  - $ref: /schemas/pci/snps,dw-pcie.yaml#
+
+and snps,dw-pcie.yaml does have the dma interrupts defined, in order to be
+able to use these interrupts, while still making sure 'make CHECK_DTBS=y'
+pass, we need to add these interrupts to rockchip-dw-pcie.yaml.
+
+These dedicated interrupts for the eDMA are not always wired to all the
+PCIe controllers on the same SoC. In other words, even for a specific
+compatible, e.g. rockchip,rk3588-pcie, these dedicated eDMA interrupts
+may or may not be wired.
+
+Signed-off-by: Niklas Cassel <niklas.cassel@wdc.com>
+---
+ .../bindings/pci/rockchip-dw-pcie.yaml         | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/Documentation/devicetree/bindings/pci/rockchip-dw-pcie.yaml b/Documentation/devicetree/bindings/pci/rockchip-dw-pcie.yaml
+index 6ca87ff4ae20..7ad6e1283784 100644
+--- a/Documentation/devicetree/bindings/pci/rockchip-dw-pcie.yaml
++++ b/Documentation/devicetree/bindings/pci/rockchip-dw-pcie.yaml
+@@ -63,6 +63,7 @@ properties:
+       - const: pipe
+ 
+   interrupts:
++    minItems: 5
+     items:
+       - description:
+           Combined system interrupt, which is used to signal the following
+@@ -86,14 +87,31 @@ properties:
+           interrupts - aer_rc_err, aer_rc_err_msi, rx_cpl_timeout,
+           tx_cpl_timeout, cor_err_sent, nf_err_sent, f_err_sent, cor_err_rx,
+           nf_err_rx, f_err_rx, radm_qoverflow
++      - description:
++          Indicates that the eDMA Tx/Rx transfer is complete or that an
++          error has occurred on the corresponding channel.
++      - description:
++          Indicates that the eDMA Tx/Rx transfer is complete or that an
++          error has occurred on the corresponding channel.
++      - description:
++          Indicates that the eDMA Tx/Rx transfer is complete or that an
++          error has occurred on the corresponding channel.
++      - description:
++          Indicates that the eDMA Tx/Rx transfer is complete or that an
++          error has occurred on the corresponding channel.
+ 
+   interrupt-names:
++    minItems: 5
+     items:
+       - const: sys
+       - const: pmc
+       - const: msg
+       - const: legacy
+       - const: err
++      - const: dma0
++      - const: dma1
++      - const: dma2
++      - const: dma3
+ 
+   legacy-interrupt-controller:
+     description: Interrupt controller node for handling legacy PCI interrupts.
+-- 
+2.41.0
+

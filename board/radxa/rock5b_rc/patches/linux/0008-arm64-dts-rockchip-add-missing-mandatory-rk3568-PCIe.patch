@@ -1,0 +1,87 @@
+From 98db28b16ed4a100f9c19e492918bb7c2633249f Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <niklas.cassel@wdc.com>
+Date: Thu, 26 Oct 2023 13:02:11 +0200
+Subject: [PATCH 08/14] arm64: dts: rockchip: add missing mandatory rk3568 PCIe
+ atu property
+
+From the snps,dw-pcie.yaml devicetree binding:
+"At least DBI reg-space and peripheral devices CFG-space outbound window
+are required for the normal controller work. iATU memory IO region is
+also required if the space is unrolled (IP-core version >= 4.80a)."
+
+All the PCIe controllers in rk3568 are using the iATU unroll feature,
+and thus have to supply the atu property in the device tree node.
+
+Without this patch, the driver will not be able to detect all the inbound
+and outbound iATUs. (The default iATU range that is used by by the driver,
+when no atu property is found, allows the driver to detect up to a maximum
+of 8 inbound and 8 outbound iATUs.)
+
+Signed-off-by: Niklas Cassel <niklas.cassel@wdc.com>
+---
+ arch/arm64/boot/dts/rockchip/rk3568.dtsi | 14 ++++++++------
+ arch/arm64/boot/dts/rockchip/rk356x.dtsi |  7 ++++---
+ 2 files changed, 12 insertions(+), 9 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/rockchip/rk3568.dtsi b/arch/arm64/boot/dts/rockchip/rk3568.dtsi
+index 4487754065b7..019429891288 100644
+--- a/arch/arm64/boot/dts/rockchip/rk3568.dtsi
++++ b/arch/arm64/boot/dts/rockchip/rk3568.dtsi
+@@ -90,13 +90,14 @@ pcie3x1: pcie@fe270000 {
+ 		phys = <&pcie30phy>;
+ 		phy-names = "pcie-phy";
+ 		power-domains = <&power RK3568_PD_PIPE>;
+-		reg = <0x3 0xc0400000 0x0 0x00400000>,
++		reg = <0x3 0xc0400000 0x0 0x00300000>,
+ 		      <0x0 0xfe270000 0x0 0x00010000>,
+-		      <0x0 0xf2000000 0x0 0x00100000>;
++		      <0x0 0xf2000000 0x0 0x00100000>,
++		      <0x3 0xc0700000 0x0 0x00100000>;
++		reg-names = "dbi", "apb", "config", "atu";
+ 		ranges = <0x01000000 0x0 0xf2100000 0x0 0xf2100000 0x0 0x00100000>,
+ 			 <0x02000000 0x0 0xf2200000 0x0 0xf2200000 0x0 0x01e00000>,
+ 			 <0x03000000 0x0 0x40000000 0x3 0x40000000 0x0 0x40000000>;
+-		reg-names = "dbi", "apb", "config";
+ 		resets = <&cru SRST_PCIE30X1_POWERUP>;
+ 		reset-names = "pipe";
+ 		/* bifurcation; lane1 when using 1+1 */
+@@ -141,13 +142,14 @@ pcie3x2: pcie@fe280000 {
+ 		phys = <&pcie30phy>;
+ 		phy-names = "pcie-phy";
+ 		power-domains = <&power RK3568_PD_PIPE>;
+-		reg = <0x3 0xc0800000 0x0 0x00400000>,
++		reg = <0x3 0xc0800000 0x0 0x00300000>,
+ 		      <0x0 0xfe280000 0x0 0x00010000>,
+-		      <0x0 0xf0000000 0x0 0x00100000>;
++		      <0x0 0xf0000000 0x0 0x00100000>,
++		      <0x3 0xc0b00000 0x0 0x00100000>;
++		reg-names = "dbi", "apb", "config", "atu";
+ 		ranges = <0x01000000 0x0 0xf0100000 0x0 0xf0100000 0x0 0x00100000>,
+ 			 <0x02000000 0x0 0xf0200000 0x0 0xf0200000 0x0 0x01e00000>,
+ 			 <0x03000000 0x0 0x40000000 0x3 0x80000000 0x0 0x40000000>;
+-		reg-names = "dbi", "apb", "config";
+ 		resets = <&cru SRST_PCIE30X2_POWERUP>;
+ 		reset-names = "pipe";
+ 		/* bifurcation; lane0 when using 1+1 */
+diff --git a/arch/arm64/boot/dts/rockchip/rk356x.dtsi b/arch/arm64/boot/dts/rockchip/rk356x.dtsi
+index e2d99613109b..872c6bc28559 100644
+--- a/arch/arm64/boot/dts/rockchip/rk356x.dtsi
++++ b/arch/arm64/boot/dts/rockchip/rk356x.dtsi
+@@ -961,10 +961,11 @@ qos_vop_m1: qos@fe1a8100 {
+ 
+ 	pcie2x1: pcie@fe260000 {
+ 		compatible = "rockchip,rk3568-pcie";
+-		reg = <0x3 0xc0000000 0x0 0x00400000>,
++		reg = <0x3 0xc0000000 0x0 0x00300000>,
+ 		      <0x0 0xfe260000 0x0 0x00010000>,
+-		      <0x0 0xf4000000 0x0 0x00100000>;
+-		reg-names = "dbi", "apb", "config";
++		      <0x0 0xf4000000 0x0 0x00100000>,
++		      <0x3 0xc0300000 0x0 0x00100000>;
++		reg-names = "dbi", "apb", "config", "atu";
+ 		interrupts = <GIC_SPI 75 IRQ_TYPE_LEVEL_HIGH>,
+ 			     <GIC_SPI 74 IRQ_TYPE_LEVEL_HIGH>,
+ 			     <GIC_SPI 73 IRQ_TYPE_LEVEL_HIGH>,
+-- 
+2.41.0
+
