@@ -1,0 +1,43 @@
+From 1b9a490ec41719270ddd25f287a4f8fa80bb3b19 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Mon, 25 Dec 2023 08:52:59 +0900
+Subject: [PATCH 13/50] PCI: rockchip-host: Fix rockchip_pcie_host_init_port()
+ PERST handling
+
+The PCI specifications mandate that PERST be asserted for at least
+100ms. Make sure that is done in rockchip_pcie_host_init_port() by
+adding a 100ms sleep before bringing back PESRT signal to high using the
+ep_gpio GPIO. Comments are also added to clarify this behavior.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/pcie-rockchip-host.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-host.c b/drivers/pci/controller/pcie-rockchip-host.c
+index afbbdccd195d..368108ed229c 100644
+--- a/drivers/pci/controller/pcie-rockchip-host.c
++++ b/drivers/pci/controller/pcie-rockchip-host.c
+@@ -294,6 +294,7 @@ static int rockchip_pcie_host_init_port(struct rockchip_pcie *rockchip)
+ 	int err, i = MAX_LANE_NUM;
+ 	u32 status;
+ 
++	/* Assert PERST */
+ 	gpiod_set_value_cansleep(rockchip->ep_gpio, 0);
+ 
+ 	err = rockchip_pcie_init_port(rockchip);
+@@ -322,6 +323,11 @@ static int rockchip_pcie_host_init_port(struct rockchip_pcie *rockchip)
+ 	rockchip_pcie_write(rockchip, PCIE_CLIENT_LINK_TRAIN_ENABLE,
+ 			    PCIE_CLIENT_CONFIG);
+ 
++	/*
++	 * PCIe specifications mandate that PERST be asserted for at
++	 * least 100ms.
++	 */
++	msleep(100);
+ 	gpiod_set_value_cansleep(rockchip->ep_gpio, 1);
+ 
+ 	/* 500ms timeout value should be enough for Gen1/2 training */
+-- 
+2.43.0
+

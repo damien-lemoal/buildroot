@@ -1,0 +1,32 @@
+From 83fc0eed5f7831fa9fe72b54483cce33d4b82c7c Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Sun, 24 Dec 2023 13:35:31 +0900
+Subject: [PATCH 11/50] PCI: endpoint: Synchronously cancel command handler
+ work
+
+In pci_epf_test_unbind(), replace the call to cancel_delayed_work() to
+cancel the command handler delayed work with the synchronous version
+cancel_delayed_work_sync(). This ensure that the command handler is
+really stopped when proceeding with dma and bar cleanup.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/endpoint/functions/pci-epf-test.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/pci/endpoint/functions/pci-epf-test.c b/drivers/pci/endpoint/functions/pci-epf-test.c
+index 540b8a451398..f4d5a3e421d1 100644
+--- a/drivers/pci/endpoint/functions/pci-epf-test.c
++++ b/drivers/pci/endpoint/functions/pci-epf-test.c
+@@ -696,7 +696,7 @@ static void pci_epf_test_unbind(struct pci_epf *epf)
+ 	struct pci_epf_bar *epf_bar;
+ 	int bar;
+ 
+-	cancel_delayed_work(&epf_test->cmd_handler);
++	cancel_delayed_work_sync(&epf_test->cmd_handler);
+ 	pci_epf_test_clean_dma_chan(epf_test);
+ 	for (bar = 0; bar < PCI_STD_NUM_BARS; bar++) {
+ 		epf_bar = &epf->bar[bar];
+-- 
+2.43.0
+

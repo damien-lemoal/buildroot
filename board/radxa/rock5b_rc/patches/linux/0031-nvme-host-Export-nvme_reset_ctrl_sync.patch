@@ -1,0 +1,28 @@
+From 3ddb95e900553356718da709b40f70812f03471a Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Tue, 12 Dec 2023 14:27:49 +0900
+Subject: [PATCH 31/50] nvme: host: Export nvme_reset_ctrl_sync()
+
+Export nvme_reset_ctrl_sync() for use in driver modules, similarly to
+nvme_reset_ctrl().
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/host/core.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/nvme/host/core.c b/drivers/nvme/host/core.c
+index 17e905d9dc47..98df2be538d7 100644
+--- a/drivers/nvme/host/core.c
++++ b/drivers/nvme/host/core.c
+@@ -206,6 +206,7 @@ int nvme_reset_ctrl_sync(struct nvme_ctrl *ctrl)
+ 
+ 	return ret;
+ }
++EXPORT_SYMBOL_GPL(nvme_reset_ctrl_sync);
+ 
+ static void nvme_do_delete_ctrl(struct nvme_ctrl *ctrl)
+ {
+-- 
+2.43.0
+
