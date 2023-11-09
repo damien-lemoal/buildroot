@@ -1,0 +1,27 @@
+From 6d9e5d8c25d96202dfcd52e65f70ab00512715cf Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Wed, 13 Sep 2023 16:59:26 +0900
+Subject: [PATCH 29/48] nvme: host: Export nvme_delete_ctrl_sync()
+
+Export nvme_delete_ctrl_sync() to allow its use from other drivers.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/host/core.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/nvme/host/core.c b/drivers/nvme/host/core.c
+index c28a0e1df76e..0571dbb6d6ce 100644
+--- a/drivers/nvme/host/core.c
++++ b/drivers/nvme/host/core.c
+@@ -249,6 +249,7 @@ void nvme_delete_ctrl_sync(struct nvme_ctrl *ctrl)
+ 		nvme_do_delete_ctrl(ctrl);
+ 	nvme_put_ctrl(ctrl);
+ }
++EXPORT_SYMBOL_GPL(nvme_delete_ctrl_sync);
+ 
+ static blk_status_t nvme_error_status(u16 status)
+ {
+-- 
+2.44.0
+

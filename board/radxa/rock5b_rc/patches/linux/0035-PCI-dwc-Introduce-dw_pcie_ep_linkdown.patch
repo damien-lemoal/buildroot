@@ -1,0 +1,48 @@
+From bbd82cd9e073cd8145d0d07931c340eb13113e0a Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Wed, 27 Dec 2023 15:42:59 +0900
+Subject: [PATCH 35/48] PCI: dwc: Introduce dw_pcie_ep_linkdown()
+
+Define dw_pcie_ep_linkdown() as the counterpart of dw_pcie_ep_linkup()
+to allow glue drivers to signal link down events.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/dwc/pcie-designware-ep.c | 8 ++++++++
+ drivers/pci/controller/dwc/pcie-designware.h    | 1 +
+ 2 files changed, 9 insertions(+)
+
+diff --git a/drivers/pci/controller/dwc/pcie-designware-ep.c b/drivers/pci/controller/dwc/pcie-designware-ep.c
+index d656c27245cf..b01e23c9bc92 100644
+--- a/drivers/pci/controller/dwc/pcie-designware-ep.c
++++ b/drivers/pci/controller/dwc/pcie-designware-ep.c
+@@ -23,6 +23,14 @@ void dw_pcie_ep_linkup(struct dw_pcie_ep *ep)
+ }
+ EXPORT_SYMBOL_GPL(dw_pcie_ep_linkup);
+ 
++void dw_pcie_ep_linkdown(struct dw_pcie_ep *ep)
++{
++	struct pci_epc *epc = ep->epc;
++
++	pci_epc_linkdown(epc);
++}
++EXPORT_SYMBOL_GPL(dw_pcie_ep_linkdown);
++
+ void dw_pcie_ep_init_notify(struct dw_pcie_ep *ep)
+ {
+ 	struct pci_epc *epc = ep->epc;
+diff --git a/drivers/pci/controller/dwc/pcie-designware.h b/drivers/pci/controller/dwc/pcie-designware.h
+index 26dae4837462..c36326321280 100644
+--- a/drivers/pci/controller/dwc/pcie-designware.h
++++ b/drivers/pci/controller/dwc/pcie-designware.h
+@@ -669,6 +669,7 @@ static inline void __iomem *dw_pcie_own_conf_map_bus(struct pci_bus *bus,
+ 
+ #ifdef CONFIG_PCIE_DW_EP
+ void dw_pcie_ep_linkup(struct dw_pcie_ep *ep);
++void dw_pcie_ep_linkdown(struct dw_pcie_ep *ep);
+ int dw_pcie_ep_init(struct dw_pcie_ep *ep);
+ int dw_pcie_ep_init_complete(struct dw_pcie_ep *ep);
+ void dw_pcie_ep_init_notify(struct dw_pcie_ep *ep);
+-- 
+2.44.0
+
