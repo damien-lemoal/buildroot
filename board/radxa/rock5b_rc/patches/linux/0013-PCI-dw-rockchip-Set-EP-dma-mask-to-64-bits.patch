@@ -1,0 +1,26 @@
+From 44e2c1b875c43cd9fa92fcdd7304e4b60b4d7074 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Fri, 8 Dec 2023 17:06:47 +0900
+Subject: [PATCH 13/47] PCI: dw-rockchip: Set EP dma mask to 64-bits
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/dwc/pcie-dw-rockchip.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/pci/controller/dwc/pcie-dw-rockchip.c b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+index 9a206e10b3f9..44de95284f9e 100644
+--- a/drivers/pci/controller/dwc/pcie-dw-rockchip.c
++++ b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+@@ -636,6 +636,8 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
+ 		rockchip->pci.ep.ops = &rockchip_pcie_ep_ops;
+ 		rockchip->pci.ep.page_size = SZ_64K;
+ 
++		dma_set_mask_and_coherent(dev, DMA_BIT_MASK(64));
++
+ 		return dw_pcie_ep_init(&rockchip->pci.ep);
+ 	default:
+ 		dev_err(dev, "INVALID device type %d\n", rockchip->mode);
+-- 
+2.43.0
+
