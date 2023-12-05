@@ -1,0 +1,63 @@
+From 2aedbca50ae0c446527f645871c2a7fa4875bac6 Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <cassel@kernel.org>
+Date: Fri, 22 Dec 2023 19:56:05 +0100
+Subject: [PATCH 36/50] PCI: dwc: endpoint: fix resizable BAR capability
+ handling
+
+Commit fc9a77040b04 ("PCI: designware-ep: Configure Resizable BAR cap to
+advertise the smallest size") added code that claims it modifies the
+Resizable BAR capability to only advertize support for 1 MB size BARs.
+
+There are however two problems with that commit:
+1) It writes all zeroes to PCI_REBAR_CAP (which advertizes possible
+BAR sizes that a BAR be resized to). However, according to the spec,
+it is not legal to have no bit set in PCI_REBAR_CAP.
+If you want to advertize support for a 1 MB BAR size, which is the
+smallest allowed by the spec, bit 4 should be set.
+
+2) To actually control which BAR size that is currently in use,
+you should set REBAR_CTRL_REG_BAR_SIZE field in the PCI_REBAR_CTRL reg.
+To select the smallest BAR size (1 MB), we should write all zeroes to
+this field. This wasn't done before, which could mean that a BAR size that
+wasn't even supported was the one currently in use. Since some bits are
+read-only in this reg, just write zeroes to the whole reg.
+
+Fixes: fc9a77040b04 ("PCI: designware-ep: Configure Resizable BAR cap to advertise the smallest size")
+Signed-off-by: Niklas Cassel <cassel@kernel.org>
+---
+ .../pci/controller/dwc/pcie-designware-ep.c   | 19 +++++++++++++++++--
+ 1 file changed, 17 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-designware-ep.c b/drivers/pci/controller/dwc/pcie-designware-ep.c
+index 702c418d8f48..cd2d0bffcf63 100644
+--- a/drivers/pci/controller/dwc/pcie-designware-ep.c
++++ b/drivers/pci/controller/dwc/pcie-designware-ep.c
+@@ -691,8 +691,23 @@ int dw_pcie_ep_init_complete(struct dw_pcie_ep *ep)
+ 		nbars = (reg & PCI_REBAR_CTRL_NBAR_MASK) >>
+ 			PCI_REBAR_CTRL_NBAR_SHIFT;
+ 
+-		for (i = 0; i < nbars; i++, offset += PCI_REBAR_CTRL)
+-			dw_pcie_writel_dbi(pci, offset + PCI_REBAR_CAP, 0x0);
++		for (i = 0; i < nbars; i++, offset += PCI_REBAR_CTRL) {
++			/*
++			 * Bits 0-31 in REBAR_CAP advertizes support for BAR
++			 * sizes up to 128 TB. Advertize support for 1 MB BAR
++			 * size only.
++			 */
++			dw_pcie_writel_dbi(pci, offset + PCI_REBAR_CAP, BIT(4));
++
++			/*
++			 * Bits 16-32 in REBAR_CTRL advertizes support for BAR
++			 * sizes above 128 TB. Bits 8-13 indicate the currently
++			 * selected BAR size, where all zeroes indicates the
++			 * smallest supported BAR size (1 MB). Bits 0-2 and 5-7
++			 * are read-only. Thus, write zeroes to the whole reg.
++			 */
++			dw_pcie_writel_dbi(pci, offset + PCI_REBAR_CTRL, 0x0);
++		}
+ 	}
+ 
+ 	/*
+-- 
+2.43.0
+

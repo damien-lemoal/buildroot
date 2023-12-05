@@ -1,0 +1,475 @@
+From f5b5f751b89827297186745f6cd063abf88d8e54 Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <cassel@kernel.org>
+Date: Fri, 22 Dec 2023 19:57:13 +0100
+Subject: [PATCH 48/50] PCI: dw-rockchip: Add endpoint mode support
+
+Signed-off-by: Niklas Cassel <cassel@kernel.org>
+---
+ drivers/pci/controller/dwc/Kconfig            |  17 +-
+ drivers/pci/controller/dwc/pcie-dw-rockchip.c | 311 +++++++++++++++++-
+ 2 files changed, 309 insertions(+), 19 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/Kconfig b/drivers/pci/controller/dwc/Kconfig
+index 5ac021dbd46a..745f6d9f6316 100644
+--- a/drivers/pci/controller/dwc/Kconfig
++++ b/drivers/pci/controller/dwc/Kconfig
+@@ -311,16 +311,27 @@ config PCIE_RCAR_GEN4_EP
+ 	  SoCs. To compile this driver as a module, choose M here: the module
+ 	  will be called pcie-rcar-gen4.ko. This uses the DesignWare core.
+ 
++config PCIE_ROCKCHIP_DW
++	bool
++
+ config PCIE_ROCKCHIP_DW_HOST
+-	bool "Rockchip DesignWare PCIe controller"
+-	select PCIE_DW
++	bool "Rockchip DesignWare PCIe controller (host mode)"
+ 	select PCIE_DW_HOST
+ 	depends on PCI_MSI
+ 	depends on ARCH_ROCKCHIP || COMPILE_TEST
+ 	depends on OF
+ 	help
+ 	  Enables support for the DesignWare PCIe controller in the
+-	  Rockchip SoC except RK3399.
++	  Rockchip SoC (except RK3399) to work in host mode.
++
++config PCIE_ROCKCHIP_DW_EP
++	bool "Rockchip DesignWare PCIe controller (endpoint mode)"
++	select PCIE_DW_EP
++	depends on ARCH_ROCKCHIP || COMPILE_TEST
++	depends on OF
++	help
++	  Enables support for the DesignWare PCIe controller in the
++	  Rockchip SoC (except RK3399) to work in endpoint mode.
+ 
+ config PCI_EXYNOS
+ 	tristate "Samsung Exynos PCIe controller"
+diff --git a/drivers/pci/controller/dwc/pcie-dw-rockchip.c b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+index 2fe42c70097f..9538acb9c20b 100644
+--- a/drivers/pci/controller/dwc/pcie-dw-rockchip.c
++++ b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+@@ -34,10 +34,16 @@
+ #define to_rockchip_pcie(x) dev_get_drvdata((x)->dev)
+ 
+ #define PCIE_CLIENT_RC_MODE		HIWORD_UPDATE_BIT(0x40)
++#define PCIE_CLIENT_EP_MODE		HIWORD_UPDATE(0xf0, 0x0)
+ #define PCIE_CLIENT_ENABLE_LTSSM	HIWORD_UPDATE_BIT(0xc)
++#define PCIE_CLIENT_DISABLE_LTSSM	HIWORD_UPDATE(0x0c, 0x8)
++#define PCIE_CLIENT_INTR_STATUS_MISC	0x10
++#define PCIE_CLIENT_INTR_MASK_MISC	0x24
+ #define PCIE_SMLH_LINKUP		BIT(16)
+ #define PCIE_RDLH_LINKUP		BIT(17)
+ #define PCIE_LINKUP			(PCIE_SMLH_LINKUP | PCIE_RDLH_LINKUP)
++#define PCIE_RDLH_LINK_UP_CHGED		BIT(1)
++#define PCIE_LINK_REQ_RST_NOT_INT	BIT(2)
+ #define PCIE_L0S_ENTRY			0x11
+ #define PCIE_CLIENT_GENERAL_CONTROL	0x0
+ #define PCIE_CLIENT_INTR_STATUS_LEGACY	0x8
+@@ -47,6 +53,8 @@
+ #define PCIE_CLIENT_LTSSM_STATUS	0x300
+ #define PCIE_LTSSM_ENABLE_ENHANCE	BIT(4)
+ #define PCIE_LTSSM_STATUS_MASK		GENMASK(5, 0)
++#define PCIE_LTSSM_DATA_RATE_MASK	GENMASK(22, 20)
++#define PCIE_LTSSM_DATA_RATE_SHIFT	20
+ 
+ struct rockchip_pcie {
+ 	struct dw_pcie			pci;
+@@ -58,6 +66,13 @@ struct rockchip_pcie {
+ 	struct gpio_desc		*rst_gpio;
+ 	struct regulator                *vpcie3v3;
+ 	struct irq_domain		*irq_domain;
++	int				ep_sys_irq;
++	enum dw_pcie_device_mode	mode;
++	bool				link_up;
++};
++
++struct rockchip_pcie_of_data {
++	enum dw_pcie_device_mode mode;
+ };
+ 
+ static int rockchip_pcie_readl_apb(struct rockchip_pcie *rockchip,
+@@ -144,16 +159,27 @@ static int rockchip_pcie_init_irq_domain(struct rockchip_pcie *rockchip)
+ 	return 0;
+ }
+ 
++static inline u32 rockchip_pcie_ltssm(struct rockchip_pcie *rockchip)
++{
++	return rockchip_pcie_readl_apb(rockchip, PCIE_CLIENT_LTSSM_STATUS);
++}
++
+ static void rockchip_pcie_enable_ltssm(struct rockchip_pcie *rockchip)
+ {
+ 	rockchip_pcie_writel_apb(rockchip, PCIE_CLIENT_ENABLE_LTSSM,
+ 				 PCIE_CLIENT_GENERAL_CONTROL);
+ }
+ 
++static void rockchip_pcie_disable_ltssm(struct rockchip_pcie *rockchip)
++{
++	rockchip_pcie_writel_apb(rockchip, PCIE_CLIENT_DISABLE_LTSSM,
++				 PCIE_CLIENT_GENERAL_CONTROL);
++}
++
+ static int rockchip_pcie_link_up(struct dw_pcie *pci)
+ {
+ 	struct rockchip_pcie *rockchip = to_rockchip_pcie(pci);
+-	u32 val = rockchip_pcie_readl_apb(rockchip, PCIE_CLIENT_LTSSM_STATUS);
++	u32 val = rockchip_pcie_ltssm(rockchip);
+ 
+ 	if ((val & PCIE_LINKUP) == PCIE_LINKUP &&
+ 	    (val & PCIE_LTSSM_STATUS_MASK) == PCIE_L0S_ENTRY)
+@@ -162,10 +188,33 @@ static int rockchip_pcie_link_up(struct dw_pcie *pci)
+ 	return 0;
+ }
+ 
++static void rockchip_pcie_stop_link(struct dw_pcie *pci)
++{
++	struct rockchip_pcie *rockchip = to_rockchip_pcie(pci);
++
++	rockchip_pcie_disable_ltssm(rockchip);
++
++	if (rockchip->mode == DW_PCIE_EP_TYPE) {
++		/* Mask DLL up/down indicator and Hot reset/link-down reset */
++		rockchip_pcie_writel_apb(rockchip, 0x60006,
++					 PCIE_CLIENT_INTR_MASK_MISC);
++		disable_irq(rockchip->ep_sys_irq);
++	}
++}
++
+ static int rockchip_pcie_start_link(struct dw_pcie *pci)
+ {
+ 	struct rockchip_pcie *rockchip = to_rockchip_pcie(pci);
+ 
++	if (rockchip->mode == DW_PCIE_EP_TYPE) {
++		/* Unmask DLL up/down indicator and Hot reset/link-down reset */
++		enable_irq(rockchip->ep_sys_irq);
++		rockchip_pcie_writel_apb(rockchip, 0x60000,
++					 PCIE_CLIENT_INTR_MASK_MISC);
++		rockchip_pcie_enable_ltssm(rockchip);
++		return 0;
++	}
++
+ 	/* Reset device */
+ 	gpiod_set_value_cansleep(rockchip->rst_gpio, 0);
+ 
+@@ -191,7 +240,6 @@ static int rockchip_pcie_host_init(struct dw_pcie_rp *pp)
+ 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
+ 	struct rockchip_pcie *rockchip = to_rockchip_pcie(pci);
+ 	struct device *dev = rockchip->pci.dev;
+-	u32 val = HIWORD_UPDATE_BIT(PCIE_LTSSM_ENABLE_ENHANCE);
+ 	int irq, ret;
+ 
+ 	irq = of_irq_get_byname(dev->of_node, "legacy");
+@@ -205,12 +253,6 @@ static int rockchip_pcie_host_init(struct dw_pcie_rp *pp)
+ 	irq_set_chained_handler_and_data(irq, rockchip_pcie_legacy_int_handler,
+ 					 rockchip);
+ 
+-	/* LTSSM enable control mode */
+-	rockchip_pcie_writel_apb(rockchip, val, PCIE_CLIENT_HOT_RESET_CTRL);
+-
+-	rockchip_pcie_writel_apb(rockchip, PCIE_CLIENT_RC_MODE,
+-				 PCIE_CLIENT_GENERAL_CONTROL);
+-
+ 	return 0;
+ }
+ 
+@@ -218,6 +260,60 @@ static const struct dw_pcie_host_ops rockchip_pcie_host_ops = {
+ 	.host_init = rockchip_pcie_host_init,
+ };
+ 
++static void rockchip_pcie_ep_init(struct dw_pcie_ep *ep)
++{
++	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
++	enum pci_barno bar;
++
++	for (bar = 0; bar < PCI_STD_NUM_BARS; bar++)
++		dw_pcie_ep_reset_bar(pci, bar);
++};
++
++static int rockchip_pcie_raise_irq(struct dw_pcie_ep *ep, u8 func_no,
++				   unsigned int type,
++				   u16 interrupt_num)
++{
++	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
++
++	switch (type) {
++	case PCI_IRQ_LEGACY:
++		return dw_pcie_ep_raise_legacy_irq(ep, func_no);
++	case PCI_IRQ_MSI:
++		return dw_pcie_ep_raise_msi_irq(ep, func_no, interrupt_num);
++	case PCI_IRQ_MSIX:
++		return dw_pcie_ep_raise_msix_irq(ep, func_no, interrupt_num);
++	default:
++		dev_err(pci->dev, "UNKNOWN IRQ type\n");
++	}
++
++	return 0;
++}
++
++static const struct pci_epc_features rockchip_pcie_epc_features = {
++	.linkup_notifier = true,
++	.msi_capable = true,
++	.msix_capable = true,
++	.align = SZ_64K,
++	.reserved_bar = BIT(BAR_4),
++	.bar_fixed_size[0] = SZ_1M,
++	.bar_fixed_size[1] = SZ_1M,
++	.bar_fixed_size[2] = SZ_1M,
++	.bar_fixed_size[3] = SZ_1M,
++	.bar_fixed_size[5] = SZ_1M,
++};
++
++static const struct pci_epc_features *
++rockchip_pcie_get_features(struct dw_pcie_ep *ep)
++{
++	return &rockchip_pcie_epc_features;
++}
++
++static const struct dw_pcie_ep_ops rockchip_pcie_ep_ops = {
++	.ep_init = rockchip_pcie_ep_init,
++	.raise_irq = rockchip_pcie_raise_irq,
++	.get_features = rockchip_pcie_get_features,
++};
++
+ static int rockchip_pcie_clk_init(struct rockchip_pcie *rockchip)
+ {
+ 	struct device *dev = rockchip->pci.dev;
+@@ -282,15 +378,161 @@ static void rockchip_pcie_phy_deinit(struct rockchip_pcie *rockchip)
+ static const struct dw_pcie_ops dw_pcie_ops = {
+ 	.link_up = rockchip_pcie_link_up,
+ 	.start_link = rockchip_pcie_start_link,
++	.stop_link = rockchip_pcie_stop_link,
+ };
+ 
++static void rockchip_pcie_ep_link_up(struct rockchip_pcie *rockchip,
++				     u32 ltssm)
++{
++	struct dw_pcie *pci = &rockchip->pci;
++	struct device *dev = pci->dev;
++	static const char *rate_str[] =
++		{ "2.5", "5.0", "8.0", "16.0", "32.0" };
++	u32 rate = (ltssm & PCIE_LTSSM_DATA_RATE_MASK) >>
++		PCIE_LTSSM_DATA_RATE_SHIFT;
++
++	dev_info(dev, "Link UP, negotiated rate: %s GT/s\n",
++		 rate <= 4 ? rate_str[rate] : "?");
++
++	dw_pcie_ep_linkup(&pci->ep);
++	rockchip->link_up = true;
++}
++
++static void rockchip_pcie_ep_link_down(struct rockchip_pcie *rockchip)
++{
++	struct dw_pcie *pci = &rockchip->pci;
++	struct device *dev = pci->dev;
++
++	dev_info(dev, "Link DOWN\n");
++
++	dw_pcie_ep_linkdown(&pci->ep);
++	rockchip->link_up = false;
++}
++
++static irqreturn_t rockchip_pcie_ep_sys_irq_thread(int irq, void *arg)
++{
++	struct rockchip_pcie *rockchip = arg;
++	struct dw_pcie *pci = &rockchip->pci;
++	struct device *dev = pci->dev;
++	bool check_link = false;
++	u32 mask = 0;
++	u32 reg;
++	u32 val;
++
++	reg = rockchip_pcie_readl_apb(rockchip, PCIE_CLIENT_INTR_STATUS_MISC);
++
++	dev_dbg(dev, "PCIE_CLIENT_INTR_STATUS_MISC: %#x\n", reg);
++	dev_dbg(dev, "LTSSM_STATUS: %#x\n", rockchip_pcie_ltssm(rockchip));
++
++	if (reg & PCIE_LINK_REQ_RST_NOT_INT) {
++		unsigned int offset, nbars;
++		int i;
++
++		dev_info(dev, "Hot reset or link-down reset\n");
++
++		mask |= PCIE_LINK_REQ_RST_NOT_INT;
++
++		offset = dw_pcie_find_ext_capability(pci, PCI_EXT_CAP_ID_REBAR);
++		if (offset) {
++			val = dw_pcie_readl_dbi(pci, offset + PCI_REBAR_CTRL);
++			nbars = (val & PCI_REBAR_CTRL_NBAR_MASK) >>
++				PCI_REBAR_CTRL_NBAR_SHIFT;
++
++			for (i = 0; i < nbars; i++, offset += PCI_REBAR_CTRL)
++				dw_pcie_writel_dbi(pci, offset + PCI_REBAR_CTRL,
++						   0x0);
++		}
++
++		/* Setup command register */
++		val = dw_pcie_readl_dbi(pci, PCI_COMMAND);
++		val &= 0xffff0000;
++		val |= PCI_COMMAND_IO | PCI_COMMAND_MEMORY |
++		       PCI_COMMAND_MASTER | PCI_COMMAND_SERR;
++		dw_pcie_writel_dbi(pci, PCI_COMMAND, val);
++
++		check_link = true;
++	}
++
++	if (reg & PCIE_RDLH_LINK_UP_CHGED || check_link) {
++		if (reg & PCIE_RDLH_LINK_UP_CHGED)
++			mask |= PCIE_RDLH_LINK_UP_CHGED;
++		val = rockchip_pcie_ltssm(rockchip);
++		if ((val & PCIE_LINKUP) == PCIE_LINKUP)
++			rockchip_pcie_ep_link_up(rockchip, val);
++		else if (rockchip->link_up)
++			rockchip_pcie_ep_link_down(rockchip);
++	}
++
++	rockchip_pcie_writel_apb(rockchip, mask, PCIE_CLIENT_INTR_STATUS_MISC);
++
++	return IRQ_HANDLED;
++}
++
++static int rockchip_pcie_configure_rc(struct platform_device *pdev,
++				      struct rockchip_pcie *rockchip)
++{
++	if (!IS_ENABLED(CONFIG_PCIE_ROCKCHIP_DW_HOST))
++		return -ENODEV;
++
++	rockchip_pcie_writel_apb(rockchip, PCIE_CLIENT_RC_MODE,
++				 PCIE_CLIENT_GENERAL_CONTROL);
++
++	rockchip->pci.pp.ops = &rockchip_pcie_host_ops;
++
++	return dw_pcie_host_init(&rockchip->pci.pp);
++}
++
++static int rockchip_pcie_configure_ep(struct platform_device *pdev,
++				      struct rockchip_pcie *rockchip)
++{
++	struct device *dev = &pdev->dev;
++	int ret;
++
++	if (!IS_ENABLED(CONFIG_PCIE_ROCKCHIP_DW_EP))
++		return -ENODEV;
++
++	rockchip->ep_sys_irq = platform_get_irq_byname(pdev, "sys");
++	if (rockchip->ep_sys_irq < 0) {
++		dev_err(dev, "missing sys IRQ resource\n");
++		return -EINVAL;
++	}
++
++	irq_set_status_flags(rockchip->ep_sys_irq, IRQ_NOAUTOEN);
++	ret = devm_request_threaded_irq(dev, rockchip->ep_sys_irq, NULL,
++					rockchip_pcie_ep_sys_irq_thread,
++					IRQF_SHARED | IRQF_ONESHOT,
++					"pcie-sys", rockchip);
++	if (ret) {
++		dev_err(dev, "failed to request PCIe sys IRQ\n");
++		return ret;
++	}
++
++	rockchip_pcie_writel_apb(rockchip, PCIE_CLIENT_EP_MODE,
++				 PCIE_CLIENT_GENERAL_CONTROL);
++
++	rockchip->pci.ep.ops = &rockchip_pcie_ep_ops;
++	rockchip->pci.ep.page_size = SZ_64K;
++
++	dma_set_mask_and_coherent(dev, DMA_BIT_MASK(64));
++
++	return dw_pcie_ep_init(&rockchip->pci.ep);
++}
++
+ static int rockchip_pcie_probe(struct platform_device *pdev)
+ {
+ 	struct device *dev = &pdev->dev;
+ 	struct rockchip_pcie *rockchip;
+-	struct dw_pcie_rp *pp;
++	const struct rockchip_pcie_of_data *data;
++	enum dw_pcie_device_mode mode;
++	u32 val;
+ 	int ret;
+ 
++	data = of_device_get_match_data(dev);
++	if (!data)
++		return -EINVAL;
++
++	mode = (enum dw_pcie_device_mode)data->mode;
++
+ 	rockchip = devm_kzalloc(dev, sizeof(*rockchip), GFP_KERNEL);
+ 	if (!rockchip)
+ 		return -ENOMEM;
+@@ -299,9 +541,7 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
+ 
+ 	rockchip->pci.dev = dev;
+ 	rockchip->pci.ops = &dw_pcie_ops;
+-
+-	pp = &rockchip->pci.pp;
+-	pp->ops = &rockchip_pcie_host_ops;
++	rockchip->mode = mode;
+ 
+ 	ret = rockchip_pcie_resource_get(pdev, rockchip);
+ 	if (ret)
+@@ -338,10 +578,30 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		goto deinit_phy;
+ 
+-	ret = dw_pcie_host_init(pp);
+-	if (!ret)
+-		return 0;
++	/* LTSSM enable control mode */
++	val = HIWORD_UPDATE_BIT(PCIE_LTSSM_ENABLE_ENHANCE);
++	rockchip_pcie_writel_apb(rockchip, val, PCIE_CLIENT_HOT_RESET_CTRL);
++
++	switch (rockchip->mode) {
++	case DW_PCIE_RC_TYPE:
++		ret = rockchip_pcie_configure_rc(pdev, rockchip);
++		if (ret)
++			goto deinit_clk;
++		break;
++	case DW_PCIE_EP_TYPE:
++		ret = rockchip_pcie_configure_ep(pdev, rockchip);
++		if (ret)
++			goto deinit_clk;
++		break;
++	default:
++		dev_err(dev, "INVALID device type %d\n", rockchip->mode);
++		ret = -EINVAL;
++		goto deinit_clk;
++	}
++
++	return 0;
+ 
++deinit_clk:
+ 	clk_bulk_disable_unprepare(rockchip->clk_cnt, rockchip->clks);
+ deinit_phy:
+ 	rockchip_pcie_phy_deinit(rockchip);
+@@ -352,8 +612,27 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
+ 	return ret;
+ }
+ 
++static const struct rockchip_pcie_of_data rk3568_pcie_rc_of_data = {
++	.mode = DW_PCIE_RC_TYPE,
++};
++
++static const struct rockchip_pcie_of_data rk3588_pcie_ep_of_data = {
++	.mode = DW_PCIE_EP_TYPE,
++};
++
+ static const struct of_device_id rockchip_pcie_of_match[] = {
+-	{ .compatible = "rockchip,rk3568-pcie", },
++	{
++		.compatible = "rockchip,rk3568-pcie",
++		.data = &rk3568_pcie_rc_of_data,
++	},
++	{
++		.compatible = "rockchip,rk3588-pcie",
++		.data = &rk3568_pcie_rc_of_data,
++	},
++	{
++		.compatible = "rockchip,rk3588-pcie-ep",
++		.data = &rk3588_pcie_ep_of_data,
++	},
+ 	{},
+ };
+ 
+-- 
+2.43.0
+

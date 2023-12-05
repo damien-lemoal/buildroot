@@ -1,0 +1,218 @@
+From ca1c59f3eb93b93e0524436a2905a157406bb852 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Wed, 27 Dec 2023 10:50:34 +0900
+Subject: [PATCH 23/50] PCI: rockchip-ep: Improve link training
+
+The Rockchip rk339 technical reference manual describe the endpoing mode
+link training process clearly and states that:
+  Insure link training completion and success by observing link_st field
+  in PCIe Client BASIC_STATUS1 register change to 2'b11. If both side
+  support PCIe Gne2 speed, re-train can be Initiated by asserting the
+  Retrain Link field in Link Control and Status Register. The software
+  should insure the BASIC_STATUS0[negotiated_speed] change to "1", that
+  indicates re-train to Gen2 successfully.
+This procedure is very similar to what is done for the root-port mode in
+rockchip_pcie_host_init_port().
+
+Implement this link training procedure for for the endpoint mode as
+well. Given that the rk3399 SoC does not have an interrupt signaling
+link status changes, training is implemented as a delayed work which is
+rescheduled until the link training completes of the endpoint is
+stopped. The link training work is first scheduled in
+rockchip_pcie_ep_start() when the endpoint function is started.
+Link ctraining completion is signaled to the function using
+pci_epc_linkup(). Accordingly, the linkup_notifier field of the rockchip
+pci_epc_features structure is changed to true.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 79 ++++++++++++++++++++++-
+ drivers/pci/controller/pcie-rockchip.h    | 11 ++++
+ 2 files changed, 89 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index 9d9b34f35409..27e67d2e3131 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -16,6 +16,8 @@
+ #include <linux/platform_device.h>
+ #include <linux/pci-epf.h>
+ #include <linux/sizes.h>
++#include <linux/workqueue.h>
++#include <linux/iopoll.h>
+ 
+ #include "pcie-rockchip.h"
+ 
+@@ -48,6 +50,7 @@ struct rockchip_pcie_ep {
+ 	u64			irq_pci_addr;
+ 	u8			irq_pci_fn;
+ 	u8			irq_pending;
++	struct delayed_work	link_training;
+ };
+ 
+ static void rockchip_pcie_clear_ep_ob_atu(struct rockchip_pcie *rockchip,
+@@ -467,6 +470,8 @@ static int rockchip_pcie_ep_start(struct pci_epc *epc)
+ 			    PCIE_CLIENT_CONF_ENABLE,
+ 			    PCIE_CLIENT_CONFIG);
+ 
++	schedule_delayed_work(&ep->link_training, 0);
++
+ 	return 0;
+ }
+ 
+@@ -475,6 +480,8 @@ static void rockchip_pcie_ep_stop(struct pci_epc *epc)
+ 	struct rockchip_pcie_ep *ep = epc_get_drvdata(epc);
+ 	struct rockchip_pcie *rockchip = &ep->rockchip;
+ 
++	cancel_delayed_work_sync(&ep->link_training);
++
+ 	/* Stop link training and disable configuration */
+ 	rockchip_pcie_write(rockchip,
+ 			    PCIE_CLIENT_CONF_DISABLE |
+@@ -482,8 +489,77 @@ static void rockchip_pcie_ep_stop(struct pci_epc *epc)
+ 			    PCIE_CLIENT_CONFIG);
+ }
+ 
++static void rockchip_pcie_ep_retrain_link(struct rockchip_pcie *rockchip)
++{
++	u32 status;
++
++	status = rockchip_pcie_read(rockchip, PCIE_EP_CONFIG_LCS);
++	status |= PCI_EXP_LNKCTL_RL;
++	rockchip_pcie_write(rockchip, status, PCIE_EP_CONFIG_LCS);
++}
++
++static bool rockchip_pcie_ep_link_up(struct rockchip_pcie *rockchip)
++{
++	u32 val = rockchip_pcie_read(rockchip, PCIE_CLIENT_BASIC_STATUS1);
++
++	return PCIE_LINK_UP(val);
++}
++
++static void rockchip_pcie_ep_link_training(struct work_struct *work)
++{
++	struct rockchip_pcie_ep *ep =
++		container_of(work, struct rockchip_pcie_ep, link_training.work);
++	struct rockchip_pcie *rockchip = &ep->rockchip;
++	struct device *dev = rockchip->dev;
++	u32 val;
++	int ret;
++
++	/* Enable Gen1 training and wait for its completion */
++	ret = readl_poll_timeout(rockchip->apb_base + PCIE_CORE_CTRL,
++				 val, PCIE_LINK_TRAINING_DONE(val), 50,
++				 LINK_TRAIN_TIMEOUT);
++	if (ret)
++		goto again;
++
++	/* Make sure that the link is up */
++	ret = readl_poll_timeout(rockchip->apb_base + PCIE_CLIENT_BASIC_STATUS1,
++				 val, PCIE_LINK_UP(val), 50,
++				 LINK_TRAIN_TIMEOUT);
++	if (ret)
++		goto again;
++
++	/* Check the current speed */
++	val = rockchip_pcie_read(rockchip, PCIE_CORE_CTRL);
++	if (!PCIE_LINK_IS_GEN2(val) && rockchip->link_gen == 2) {
++		/* Enable retrain for gen2 */
++		rockchip_pcie_ep_retrain_link(rockchip);
++		readl_poll_timeout(rockchip->apb_base + PCIE_CORE_CTRL,
++				   val, PCIE_LINK_IS_GEN2(val), 50,
++				   LINK_TRAIN_TIMEOUT);
++	}
++
++	/* Check again that the link is up */
++	if (!rockchip_pcie_ep_link_up(rockchip))
++		goto again;
++
++	val = rockchip_pcie_read(rockchip, PCIE_CLIENT_BASIC_STATUS0);
++	dev_info(dev,
++		 "Link UP (Negociated speed: %sGT/s, width: x%lu)\n",
++		 (val & PCIE_CLIENT_NEG_LINK_SPEED) ? "5" : "2.5",
++		 ((val & PCIE_CLIENT_NEG_LINK_WIDTH_MASK) >>
++		  PCIE_CLIENT_NEG_LINK_WIDTH_SHIFT) << 1);
++
++	/* Notify the function */
++	pci_epc_linkup(ep->epc);
++
++	return;
++
++again:
++	schedule_delayed_work(&ep->link_training, msecs_to_jiffies(5));
++}
++
+ static const struct pci_epc_features rockchip_pcie_epc_features = {
+-	.linkup_notifier = false,
++	.linkup_notifier = true,
+ 	.msi_capable = true,
+ 	.msix_capable = false,
+ 	.align = ROCKCHIP_PCIE_AT_SIZE_ALIGN,
+@@ -644,6 +720,7 @@ static int rockchip_pcie_ep_probe(struct platform_device *pdev)
+ 	rockchip = &ep->rockchip;
+ 	rockchip->is_rc = false;
+ 	rockchip->dev = dev;
++	INIT_DELAYED_WORK(&ep->link_training, rockchip_pcie_ep_link_training);
+ 
+ 	epc = devm_pci_epc_create(dev, &rockchip_pcie_epc_ops);
+ 	if (IS_ERR(epc)) {
+diff --git a/drivers/pci/controller/pcie-rockchip.h b/drivers/pci/controller/pcie-rockchip.h
+index 0263f158ee8d..3963b7097a91 100644
+--- a/drivers/pci/controller/pcie-rockchip.h
++++ b/drivers/pci/controller/pcie-rockchip.h
+@@ -26,6 +26,7 @@
+ #define MAX_LANE_NUM			4
+ #define MAX_REGION_LIMIT		32
+ #define MIN_EP_APERTURE			28
++#define LINK_TRAIN_TIMEOUT		(5000 * USEC_PER_MSEC)
+ 
+ #define PCIE_CLIENT_BASE		0x0
+ #define PCIE_CLIENT_CONFIG		(PCIE_CLIENT_BASE + 0x00)
+@@ -50,6 +51,10 @@
+ #define   PCIE_CLIENT_DEBUG_LTSSM_MASK		GENMASK(5, 0)
+ #define   PCIE_CLIENT_DEBUG_LTSSM_L1		0x18
+ #define   PCIE_CLIENT_DEBUG_LTSSM_L2		0x19
++#define PCIE_CLIENT_BASIC_STATUS0	(PCIE_CLIENT_BASE + 0x44)
++#define   PCIE_CLIENT_NEG_LINK_WIDTH_MASK	GENMASK(7, 6)
++#define   PCIE_CLIENT_NEG_LINK_WIDTH_SHIFT	6
++#define   PCIE_CLIENT_NEG_LINK_SPEED		BIT(5)
+ #define PCIE_CLIENT_BASIC_STATUS1	(PCIE_CLIENT_BASE + 0x48)
+ #define   PCIE_CLIENT_LINK_STATUS_UP		0x00300000
+ #define   PCIE_CLIENT_LINK_STATUS_MASK		0x00300000
+@@ -87,6 +92,8 @@
+ 
+ #define PCIE_CORE_CTRL_MGMT_BASE	0x900000
+ #define PCIE_CORE_CTRL			(PCIE_CORE_CTRL_MGMT_BASE + 0x000)
++#define   PCIE_CORE_PL_CONF_LS_MASK		0x00000001
++#define   PCIE_CORE_PL_CONF_LS_READY		0x00000001
+ #define   PCIE_CORE_PL_CONF_SPEED_5G		0x00000008
+ #define   PCIE_CORE_PL_CONF_SPEED_MASK		0x00000018
+ #define   PCIE_CORE_PL_CONF_LANE_MASK		0x00000006
+@@ -144,6 +151,7 @@
+ #define PCIE_RC_CONFIG_BASE		0xa00000
+ #define PCIE_EP_CONFIG_BASE		0xa00000
+ #define PCIE_EP_CONFIG_DID_VID		(PCIE_EP_CONFIG_BASE + 0x00)
++#define PCIE_EP_CONFIG_LCS		(PCIE_EP_CONFIG_BASE + 0xd0)
+ #define PCIE_RC_CONFIG_RID_CCR		(PCIE_RC_CONFIG_BASE + 0x08)
+ #define PCIE_RC_CONFIG_DCR		(PCIE_RC_CONFIG_BASE + 0xc4)
+ #define   PCIE_RC_CONFIG_DCR_CSPL_SHIFT		18
+@@ -155,6 +163,7 @@
+ #define PCIE_RC_CONFIG_LINK_CAP		(PCIE_RC_CONFIG_BASE + 0xcc)
+ #define   PCIE_RC_CONFIG_LINK_CAP_L0S		BIT(10)
+ #define PCIE_RC_CONFIG_LCS		(PCIE_RC_CONFIG_BASE + 0xd0)
++#define PCIE_EP_CONFIG_LCS		(PCIE_EP_CONFIG_BASE + 0xd0)
+ #define PCIE_RC_CONFIG_L1_SUBSTATE_CTRL2 (PCIE_RC_CONFIG_BASE + 0x90c)
+ #define PCIE_RC_CONFIG_THP_CAP		(PCIE_RC_CONFIG_BASE + 0x274)
+ #define   PCIE_RC_CONFIG_THP_CAP_NEXT_MASK	GENMASK(31, 20)
+@@ -192,6 +201,8 @@
+ #define ROCKCHIP_VENDOR_ID			0x1d87
+ #define PCIE_LINK_IS_L2(x) \
+ 	(((x) & PCIE_CLIENT_DEBUG_LTSSM_MASK) == PCIE_CLIENT_DEBUG_LTSSM_L2)
++#define PCIE_LINK_TRAINING_DONE(x) \
++	(((x) & PCIE_CORE_PL_CONF_LS_MASK) == PCIE_CORE_PL_CONF_LS_READY)
+ #define PCIE_LINK_UP(x) \
+ 	(((x) & PCIE_CLIENT_LINK_STATUS_MASK) == PCIE_CLIENT_LINK_STATUS_UP)
+ #define PCIE_LINK_IS_GEN2(x) \
+-- 
+2.43.0
+

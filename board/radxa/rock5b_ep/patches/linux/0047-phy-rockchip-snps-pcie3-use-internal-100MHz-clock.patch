@@ -1,0 +1,76 @@
+From 3718c0ac63b128a42aa009af6cf4772da88f9adf Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Wed, 27 Dec 2023 16:24:50 +0900
+Subject: [PATCH 47/50] phy: rockchip-snps-pcie3: use internal 100MHz clock
+
+Default to using an internal 100MHz clock as the PCIe reference clock.
+This is necessary for running the rk3588 in endpoint mode as the PCIe
+reference clock cannot be used.
+
+Suggested-by: Jon Lin <jon.lin@rock-chips.com>
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ arch/arm64/boot/dts/rockchip/rk3588.dtsi       |  8 ++++++--
+ arch/arm64/boot/dts/rockchip/rk3588s.dtsi      |  2 +-
+ drivers/phy/rockchip/phy-rockchip-snps-pcie3.c | 13 +++++++++++++
+ 3 files changed, 20 insertions(+), 3 deletions(-)
+
+diff --git a/arch/arm64/boot/dts/rockchip/rk3588.dtsi b/arch/arm64/boot/dts/rockchip/rk3588.dtsi
+index 88b0bcfab186..77e28e1f6ebf 100644
+--- a/arch/arm64/boot/dts/rockchip/rk3588.dtsi
++++ b/arch/arm64/boot/dts/rockchip/rk3588.dtsi
+@@ -372,8 +372,12 @@ pcie30phy: phy@fee80000 {
+ 		compatible = "rockchip,rk3588-pcie3-phy";
+ 		reg = <0x0 0xfee80000 0x0 0x20000>;
+ 		#phy-cells = <0>;
+-		clocks = <&cru PCLK_PCIE_COMBO_PIPE_PHY>;
+-		clock-names = "pclk";
++		clocks = <&cru PCLK_PCIE_COMBO_PIPE_PHY>, <&cru CLK_PHY0_REF_ALT_P>,
++			 <&cru CLK_PHY0_REF_ALT_M>, <&cru CLK_PHY1_REF_ALT_P>,
++			 <&cru CLK_PHY1_REF_ALT_M>;
++		clock-names = "pclk", "phy0_ref_alt_p",
++			      "phy0_ref_alt_m", "phy1_ref_alt_p",
++			      "phy1_ref_alt_m";
+ 		resets = <&cru SRST_PCIE30_PHY>;
+ 		reset-names = "phy";
+ 		rockchip,pipe-grf = <&php_grf>;
+diff --git a/arch/arm64/boot/dts/rockchip/rk3588s.dtsi b/arch/arm64/boot/dts/rockchip/rk3588s.dtsi
+index 3e5a03cd44cf..b31c447fcadd 100644
+--- a/arch/arm64/boot/dts/rockchip/rk3588s.dtsi
++++ b/arch/arm64/boot/dts/rockchip/rk3588s.dtsi
+@@ -566,7 +566,7 @@ cru: clock-controller@fd7c0000 {
+ 			<&cru ACLK_BUS_ROOT>, <&cru CLK_150M_SRC>,
+ 			<&cru CLK_GPU>;
+ 		assigned-clock-rates =
+-			<1100000000>, <786432000>,
++			<100000000>, <786432000>,
+ 			<850000000>, <1188000000>,
+ 			<702000000>,
+ 			<400000000>, <500000000>,
+diff --git a/drivers/phy/rockchip/phy-rockchip-snps-pcie3.c b/drivers/phy/rockchip/phy-rockchip-snps-pcie3.c
+index 121e5961ce11..8ca48a89f977 100644
+--- a/drivers/phy/rockchip/phy-rockchip-snps-pcie3.c
++++ b/drivers/phy/rockchip/phy-rockchip-snps-pcie3.c
+@@ -135,6 +135,19 @@ static int rockchip_p3phy_rk3588_init(struct rockchip_p3phy_priv *priv)
+ 	u8 mode = 0;
+ 	int ret;
+ 
++	/* PHY0 & PHY1  use internal clock */
++	regmap_write(priv->phy_grf, 0x118, 0x0 | (0x1 << 18));
++	regmap_write(priv->phy_grf, 0x218, 0x0 | (0x1 << 18));
++
++	/* phy0_rx0_cmn_refclk_mod */
++	regmap_write(priv->phy_grf, 0x1004, (0x0) | (0x1 << 23));
++	/* phy0_rx1_cmn_refclk_mod */
++	regmap_write(priv->phy_grf, 0x1104, (0x0) | (0x1 << 23));
++	/* phy1_rx0_cmn_refclk_mod */
++	regmap_write(priv->phy_grf, 0x2004, (0x0) | (0x1 << 23));
++	/* phy1_rx1_cmn_refclk_mod */
++	regmap_write(priv->phy_grf, 0x2104, (0x0) | (0x1 << 23));
++
+ 	/* Deassert PCIe PMA output clamp mode */
+ 	regmap_write(priv->phy_grf, RK3588_PCIE3PHY_GRF_CMN_CON0, BIT(8) | BIT(24));
+ 
+-- 
+2.43.0
+

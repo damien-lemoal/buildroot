@@ -1,0 +1,28 @@
+From 93fbb1725727e66a04c85c286d734847667e0c2c Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Thu, 28 Dec 2023 16:33:36 +0900
+Subject: [PATCH 38/50] PCI: dwc: endpoint: Clear outbound address on unmap
+
+In addition to clearing the atu index bit in ob_window_map, also clear
+the address mapped (outbound_addr array) in dw_pcie_ep_unmap_addr().
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/dwc/pcie-designware-ep.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/pci/controller/dwc/pcie-designware-ep.c b/drivers/pci/controller/dwc/pcie-designware-ep.c
+index 74a5847756e7..4efb65166550 100644
+--- a/drivers/pci/controller/dwc/pcie-designware-ep.c
++++ b/drivers/pci/controller/dwc/pcie-designware-ep.c
+@@ -322,6 +322,7 @@ static void dw_pcie_ep_unmap_addr(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 
+ 	dw_pcie_disable_atu(pci, PCIE_ATU_REGION_DIR_OB, atu_index);
+ 	clear_bit(atu_index, ep->ob_window_map);
++	ep->outbound_addr[atu_index] = 0;
+ }
+ 
+ static int dw_pcie_ep_map_addr(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+-- 
+2.43.0
+

@@ -1,0 +1,41 @@
+From c15445ed367b6ac9397501b2b95a4043432f2d8b Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Sun, 24 Dec 2023 13:13:19 +0900
+Subject: [PATCH 12/50] PCI: endpoint: Implement test function link_down event
+ operation
+
+Implement the link_down event operation to stop the command execution
+delayed work when the endpoint controller notifies a link down event.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/endpoint/functions/pci-epf-test.c | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/drivers/pci/endpoint/functions/pci-epf-test.c b/drivers/pci/endpoint/functions/pci-epf-test.c
+index f4d5a3e421d1..60df8cb656d4 100644
+--- a/drivers/pci/endpoint/functions/pci-epf-test.c
++++ b/drivers/pci/endpoint/functions/pci-epf-test.c
+@@ -805,9 +805,19 @@ static int pci_epf_test_link_up(struct pci_epf *epf)
+ 	return 0;
+ }
+ 
++static int pci_epf_test_link_down(struct pci_epf *epf)
++{
++	struct pci_epf_test *epf_test = epf_get_drvdata(epf);
++
++	cancel_delayed_work_sync(&epf_test->cmd_handler);
++
++	return 0;
++}
++
+ static const struct pci_epf_event_ops pci_epf_test_event_ops = {
+ 	.core_init = pci_epf_test_core_init,
+ 	.link_up = pci_epf_test_link_up,
++	.link_down = pci_epf_test_link_down,
+ };
+ 
+ static int pci_epf_test_alloc_space(struct pci_epf *epf)
+-- 
+2.43.0
+
