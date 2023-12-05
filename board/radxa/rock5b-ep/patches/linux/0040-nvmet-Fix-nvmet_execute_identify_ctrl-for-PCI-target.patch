@@ -1,0 +1,60 @@
+From c082aed386bee892bd08079f2e023f3204885faf Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Sun, 27 Oct 2024 08:59:21 +0900
+Subject: [PATCH 40/40] nvmet: Fix nvmet_execute_identify_ctrl() for PCI target
+ controllers
+
+The current PCI target controller driver does not support SGLs, multiple
+ports or ANA. Modify nvmet_execute_identify_ctrl() using the
+nvmet_is_pci_req() helper to not set cmic and sgls fields of the
+indentify controller data of a PCI target controller.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/target/admin-cmd.c | 23 +++++++++++++++--------
+ 1 file changed, 15 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/nvme/target/admin-cmd.c b/drivers/nvme/target/admin-cmd.c
+index 2a5c9bc1b369..820a1e899431 100644
+--- a/drivers/nvme/target/admin-cmd.c
++++ b/drivers/nvme/target/admin-cmd.c
+@@ -402,9 +402,13 @@ static void nvmet_execute_identify_ctrl(struct nvmet_req *req)
+ 	else
+ 		id->cntrltype = NVME_CTRL_IO;
+ 
+-	/* we support multiple ports, multiples hosts and ANA: */
+-	id->cmic = NVME_CTRL_CMIC_MULTI_PORT | NVME_CTRL_CMIC_MULTI_CTRL |
+-		NVME_CTRL_CMIC_ANA;
++	/*
++	 * We support multiple ports, multiples hosts and ANA, except for PCI
++	 * target controllers.
++	 */
++	if (!nvmet_is_pci_req(req))
++		id->cmic = NVME_CTRL_CMIC_MULTI_PORT |
++			NVME_CTRL_CMIC_MULTI_CTRL | NVME_CTRL_CMIC_ANA;
+ 
+ 	/* Limit MDTS according to transport capability */
+ 	if (ctrl->ops->get_mdts)
+@@ -461,11 +465,14 @@ static void nvmet_execute_identify_ctrl(struct nvmet_req *req)
+ 	id->awun = 0;
+ 	id->awupf = 0;
+ 
+-	id->sgls = cpu_to_le32(1 << 0);	/* we always support SGLs */
+-	if (ctrl->ops->flags & NVMF_KEYED_SGLS)
+-		id->sgls |= cpu_to_le32(1 << 2);
+-	if (req->port->inline_data_size)
+-		id->sgls |= cpu_to_le32(1 << 20);
++	/* We always support SGLs, except for PCI target controllers */
++	if (!nvmet_is_pci_req(req)) {
++		id->sgls = cpu_to_le32(1 << 0);
++		if (ctrl->ops->flags & NVMF_KEYED_SGLS)
++			id->sgls |= cpu_to_le32(1 << 2);
++		if (req->port->inline_data_size)
++			id->sgls |= cpu_to_le32(1 << 20);
++	}
+ 
+ 	strscpy(id->subnqn, ctrl->subsys->subsysnqn, sizeof(id->subnqn));
+ 
+-- 
+2.47.0
+

@@ -1,0 +1,28 @@
+From c31fee68832e082de91aa37eea56154049e83bfb Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Sat, 26 Oct 2024 20:12:52 +0900
+Subject: [PATCH 35/40] nvmet: Export nvmet_get_log_page_len()
+
+Make the function nvmet_get_log_page_len() available to target drivers
+by exporting it.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/target/admin-cmd.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/nvme/target/admin-cmd.c b/drivers/nvme/target/admin-cmd.c
+index c559399efe28..273bc208b64b 100644
+--- a/drivers/nvme/target/admin-cmd.c
++++ b/drivers/nvme/target/admin-cmd.c
+@@ -24,6 +24,7 @@ u32 nvmet_get_log_page_len(struct nvme_command *cmd)
+ 
+ 	return len;
+ }
++EXPORT_SYMBOL_GPL(nvmet_get_log_page_len);
+ 
+ static u32 nvmet_feat_data_len(struct nvmet_req *req, u32 cdw10)
+ {
+-- 
+2.47.0
+

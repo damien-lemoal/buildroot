@@ -1,0 +1,82 @@
+From 564508fb4bb9ac52b14007998593de7e80e69070 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Sat, 26 Oct 2024 12:56:06 +0900
+Subject: [PATCH 30/40] nvmet: Introduce nvmet_ctrl_create()
+
+Introduce the new function nvmet_ctrl_create() to allow creating an
+empty (no queue) target controller from a target driver without
+executing a fabrics connect command. To allow deleting such controller,
+the function nvmet_ctrl_put() ia also exported.
+
+The execution of the function nvmet_ctrl_create() is for now restricted
+to creating a target controller with a port using the PCI transport.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/target/core.c  | 32 ++++++++++++++++++++++++++++++++
+ drivers/nvme/target/nvmet.h |  2 ++
+ 2 files changed, 34 insertions(+)
+
+diff --git a/drivers/nvme/target/core.c b/drivers/nvme/target/core.c
+index 8916f2f7843a..971dfd8cabaa 100644
+--- a/drivers/nvme/target/core.c
++++ b/drivers/nvme/target/core.c
+@@ -1567,10 +1567,42 @@ u16 nvmet_ctrl_create_noqueue(struct nvmet_alloc_ctrl_args *args,
+ 	return status;
+ }
+ 
++struct nvmet_ctrl *nvmet_ctrl_create(struct nvmet_port *port, char *subsysnqn,
++				     const struct nvmet_fabrics_ops *ops)
++{
++	struct nvmet_ctrl *ctrl = NULL;
++	u16 error_loc = NVMET_NO_ERROR_LOC;
++	u16 status;
++	u32 result;
++	struct nvmet_alloc_ctrl_args args = {
++		.port = port,
++		.subsysnqn = subsysnqn,
++		.hostnqn = "",
++		.ops = ops,
++		.result = &result,
++		.error_loc = &error_loc,
++	};
++
++	/* This is only allowed for the PCI transport. */
++	if (port->disc_addr.trtype != NVMF_TRTYPE_PCI ||
++	    ops->type != NVMF_TRTYPE_PCI) {
++		pr_warn("Invalid transport\n");
++		return NULL;
++	}
++
++	status = nvmet_ctrl_create_noqueue(&args, &ctrl);
++	if (status)
++		return NULL;
++
++	return ctrl;
++}
++EXPORT_SYMBOL_GPL(nvmet_ctrl_create);
++
+ void nvmet_ctrl_put(struct nvmet_ctrl *ctrl)
+ {
+ 	kref_put(&ctrl->ref, nvmet_ctrl_free);
+ }
++EXPORT_SYMBOL_GPL(nvmet_ctrl_put);
+ 
+ void nvmet_ctrl_fatal_error(struct nvmet_ctrl *ctrl)
+ {
+diff --git a/drivers/nvme/target/nvmet.h b/drivers/nvme/target/nvmet.h
+index 8c8157aab321..863c6a5a00db 100644
+--- a/drivers/nvme/target/nvmet.h
++++ b/drivers/nvme/target/nvmet.h
+@@ -512,6 +512,8 @@ struct nvmet_alloc_ctrl_args {
+ 
+ u16 nvmet_ctrl_create_noqueue(struct nvmet_alloc_ctrl_args *args,
+ 			      struct nvmet_ctrl **ctrl);
++struct nvmet_ctrl *nvmet_ctrl_create(struct nvmet_port *port, char *subsysnqn,
++				     const struct nvmet_fabrics_ops *ops);
+ struct nvmet_ctrl *nvmet_ctrl_find_get(const char *subsysnqn,
+ 				       const char *hostnqn, u16 cntlid,
+ 				       struct nvmet_req *req);
+-- 
+2.47.0
+

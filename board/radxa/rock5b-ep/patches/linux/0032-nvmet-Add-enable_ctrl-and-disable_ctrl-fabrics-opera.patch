@@ -1,0 +1,63 @@
+From 35f05d063aa52ade1f553f1b6fac29549840082a Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Sat, 26 Oct 2024 19:35:45 +0900
+Subject: [PATCH 32/40] nvmet: Add enable_ctrl() and disable_ctrl() fabrics
+ operations
+
+Allow a target driver to be notified of changes to the target controller
+state using the new fabrics operations enable_ctrl() and disable_ctrl().
+These new operations are optional and respectively called from
+nvmet_start_ctrl() when the controller is being enabled (CC.EN bit set)
+and from nvmet_stop_ctrl() when the controller is being disabled (CC.EN
+bit cleared or shutdown bit set).
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/target/core.c  | 10 ++++++++++
+ drivers/nvme/target/nvmet.h |  2 ++
+ 2 files changed, 12 insertions(+)
+
+diff --git a/drivers/nvme/target/core.c b/drivers/nvme/target/core.c
+index 971dfd8cabaa..0bb66134bf44 100644
+--- a/drivers/nvme/target/core.c
++++ b/drivers/nvme/target/core.c
+@@ -1197,6 +1197,12 @@ static void nvmet_start_ctrl(struct nvmet_ctrl *ctrl)
+ 		return;
+ 	}
+ 
++	/* Notify the target driver */
++	if (ctrl->ops->enable_ctrl) {
++		if (ctrl->ops->enable_ctrl(ctrl))
++			return;
++	}
++
+ 	ctrl->csts = NVME_CSTS_RDY;
+ 
+ 	/*
+@@ -1213,6 +1219,10 @@ static void nvmet_clear_ctrl(struct nvmet_ctrl *ctrl)
+ {
+ 	lockdep_assert_held(&ctrl->lock);
+ 
++	/* Notify the target driver */
++	if (ctrl->ops->disable_ctrl)
++		ctrl->ops->disable_ctrl(ctrl);
++
+ 	/* XXX: tear down queues? */
+ 	ctrl->csts &= ~NVME_CSTS_RDY;
+ 	ctrl->cc = 0;
+diff --git a/drivers/nvme/target/nvmet.h b/drivers/nvme/target/nvmet.h
+index 7c5a2f9e5306..2e5cc5da4752 100644
+--- a/drivers/nvme/target/nvmet.h
++++ b/drivers/nvme/target/nvmet.h
+@@ -353,6 +353,8 @@ struct nvmet_fabrics_ops {
+ 	void (*queue_response)(struct nvmet_req *req);
+ 	int (*add_port)(struct nvmet_port *port);
+ 	void (*remove_port)(struct nvmet_port *port);
++	int (*enable_ctrl)(struct nvmet_ctrl *ctrl);
++	void (*disable_ctrl)(struct nvmet_ctrl *ctrl);
+ 	void (*delete_ctrl)(struct nvmet_ctrl *ctrl);
+ 	void (*disc_traddr)(struct nvmet_req *req,
+ 			struct nvmet_port *port, char *traddr);
+-- 
+2.47.0
+

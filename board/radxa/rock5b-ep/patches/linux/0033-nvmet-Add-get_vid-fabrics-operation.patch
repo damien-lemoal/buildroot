@@ -1,0 +1,50 @@
+From dbc11f69a6de1a5f97668052519f927ae8999182 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Sun, 27 Oct 2024 09:04:03 +0900
+Subject: [PATCH 33/40] nvmet: Add get_vid() fabrics operation
+
+Allow a target controller to specify a vendor ID (and subsystem vendor
+ID) with the new fabrics operation get_vid(). This operation is used
+from nvmet_execute_identify_ctrl() to fill the vid and ssvid fields of
+the indetify controller data structure.
+
+This new operation is optional. If not defined, the vid and ssvid fields
+are zero filled (as they were before this change).
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/target/admin-cmd.c | 5 ++---
+ drivers/nvme/target/nvmet.h     | 1 +
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/nvme/target/admin-cmd.c b/drivers/nvme/target/admin-cmd.c
+index 081f0473cd9e..c559399efe28 100644
+--- a/drivers/nvme/target/admin-cmd.c
++++ b/drivers/nvme/target/admin-cmd.c
+@@ -367,9 +367,8 @@ static void nvmet_execute_identify_ctrl(struct nvmet_req *req)
+ 		goto out;
+ 	}
+ 
+-	/* XXX: figure out how to assign real vendors IDs. */
+-	id->vid = 0;
+-	id->ssvid = 0;
++	if (ctrl->ops->get_vid)
++		id->vid = ctrl->ops->get_vid(ctrl, &id->ssvid);
+ 
+ 	memcpy(id->sn, ctrl->subsys->serial, NVMET_SN_MAX_SIZE);
+ 	memcpy_and_pad(id->mn, sizeof(id->mn), subsys->model_number,
+diff --git a/drivers/nvme/target/nvmet.h b/drivers/nvme/target/nvmet.h
+index 2e5cc5da4752..a44050f40f4d 100644
+--- a/drivers/nvme/target/nvmet.h
++++ b/drivers/nvme/target/nvmet.h
+@@ -364,6 +364,7 @@ struct nvmet_fabrics_ops {
+ 	void (*discovery_chg)(struct nvmet_port *port);
+ 	u8 (*get_mdts)(const struct nvmet_ctrl *ctrl);
+ 	u16 (*get_max_queue_size)(const struct nvmet_ctrl *ctrl);
++	__le16 (*get_vid)(const struct nvmet_ctrl *ctrl, __le16 *ssvid);
+ };
+ 
+ #define NVMET_MAX_INLINE_BIOVEC	8
+-- 
+2.47.0
+

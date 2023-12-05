@@ -1,0 +1,71 @@
+From 219d3386b2b87ac0330c5f3c119909136f4702e1 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Thu, 24 Oct 2024 12:34:51 +0900
+Subject: [PATCH 37/40] nvmet: Export nvmet_find_get_subsys()
+
+Make the function nvmet_find_get_subsys() available to target drivers by
+exporting it. To allow a target driver to release the reference on a
+subsystem obtained with this function, the function nvmet_subsys_put()
+is also exported.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/target/core.c  | 7 +++----
+ drivers/nvme/target/nvmet.h | 2 ++
+ 2 files changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/nvme/target/core.c b/drivers/nvme/target/core.c
+index e5e8b0a4cca4..564e3cc431c6 100644
+--- a/drivers/nvme/target/core.c
++++ b/drivers/nvme/target/core.c
+@@ -90,9 +90,6 @@ u16 nvmet_report_invalid_opcode(struct nvmet_req *req)
+ 	return NVME_SC_INVALID_OPCODE | NVME_STATUS_DNR;
+ }
+ 
+-static struct nvmet_subsys *nvmet_find_get_subsys(struct nvmet_port *port,
+-		const char *subsysnqn);
+-
+ u16 nvmet_copy_to_sgl(struct nvmet_req *req, off_t off, const void *buf,
+ 		size_t len)
+ {
+@@ -1684,7 +1681,7 @@ ssize_t nvmet_ctrl_host_traddr(struct nvmet_ctrl *ctrl,
+ 	return ctrl->ops->host_traddr(ctrl, traddr, traddr_len);
+ }
+ 
+-static struct nvmet_subsys *nvmet_find_get_subsys(struct nvmet_port *port,
++struct nvmet_subsys *nvmet_find_get_subsys(struct nvmet_port *port,
+ 		const char *subsysnqn)
+ {
+ 	struct nvmet_subsys_link *p;
+@@ -1718,6 +1715,7 @@ static struct nvmet_subsys *nvmet_find_get_subsys(struct nvmet_port *port,
+ 	up_read(&nvmet_config_sem);
+ 	return NULL;
+ }
++EXPORT_SYMBOL_GPL(nvmet_find_get_subsys);
+ 
+ struct nvmet_subsys *nvmet_subsys_alloc(const char *subsysnqn,
+ 		enum nvme_subsys_type type)
+@@ -1827,6 +1825,7 @@ void nvmet_subsys_put(struct nvmet_subsys *subsys)
+ {
+ 	kref_put(&subsys->ref, nvmet_subsys_free);
+ }
++EXPORT_SYMBOL_GPL(nvmet_subsys_put);
+ 
+ static int __init nvmet_init(void)
+ {
+diff --git a/drivers/nvme/target/nvmet.h b/drivers/nvme/target/nvmet.h
+index 5ea0a822f7ac..985f7bd17036 100644
+--- a/drivers/nvme/target/nvmet.h
++++ b/drivers/nvme/target/nvmet.h
+@@ -535,6 +535,8 @@ struct nvmet_subsys *nvmet_subsys_alloc(const char *subsysnqn,
+ 		enum nvme_subsys_type type);
+ void nvmet_subsys_put(struct nvmet_subsys *subsys);
+ void nvmet_subsys_del_ctrls(struct nvmet_subsys *subsys);
++struct nvmet_subsys *nvmet_find_get_subsys(struct nvmet_port *port,
++		const char *subsysnqn);
+ 
+ u16 nvmet_req_find_ns(struct nvmet_req *req);
+ void nvmet_put_namespace(struct nvmet_ns *ns);
+-- 
+2.47.0
+

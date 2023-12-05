@@ -1,0 +1,187 @@
+From ff792dfc7e2dce16a29e413a2d0d8a3712a88a61 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Fri, 25 Oct 2024 23:37:33 +0900
+Subject: [PATCH 28/40] nvmet: Change nvmet_alloc_ctrl() interface
+
+Introduce struct nvmet_alloc_ctrl_args to define the arguments for
+nvmet_alloc_ctrl() to avoid the need for passing a pointer to a
+struct nvmet_req. This new data structure aggregates together the
+arguments that were passed to nvmet_alloc_ctrl (subsysnqn, hostnqn and
+kato), together with the struct nvmet_req fields used by
+nvmet_alloc_ctrl(), that is: port, p2p_client, and ops fields as input
+and the result and error_loc fields as output (pointers).
+The function nvmet_setup_p2p_ns_map() is also changed to not take a
+pointer to a struct nvmet_req as argument. Instead, directly specify the
+p2p_client device pointer needed as argument.
+
+No functional change is introduced.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/target/core.c        | 37 ++++++++++++++++---------------
+ drivers/nvme/target/fabrics-cmd.c | 15 +++++++++++--
+ drivers/nvme/target/nvmet.h       | 17 ++++++++++++--
+ 3 files changed, 47 insertions(+), 22 deletions(-)
+
+diff --git a/drivers/nvme/target/core.c b/drivers/nvme/target/core.c
+index ed2424f8a396..96bee68a10bd 100644
+--- a/drivers/nvme/target/core.c
++++ b/drivers/nvme/target/core.c
+@@ -1345,15 +1345,15 @@ bool nvmet_host_allowed(struct nvmet_subsys *subsys, const char *hostnqn)
+  * Note: ctrl->subsys->lock should be held when calling this function
+  */
+ static void nvmet_setup_p2p_ns_map(struct nvmet_ctrl *ctrl,
+-		struct nvmet_req *req)
++		struct device *p2p_client)
+ {
+ 	struct nvmet_ns *ns;
+ 	unsigned long idx;
+ 
+-	if (!req->p2p_client)
++	if (!p2p_client)
+ 		return;
+ 
+-	ctrl->p2p_client = get_device(req->p2p_client);
++	ctrl->p2p_client = get_device(p2p_client);
+ 
+ 	xa_for_each(&ctrl->subsys->namespaces, idx, ns)
+ 		nvmet_p2pmem_ns_add_p2p(ctrl, ns);
+@@ -1382,32 +1382,33 @@ static void nvmet_fatal_error_handler(struct work_struct *work)
+ 	ctrl->ops->delete_ctrl(ctrl);
+ }
+ 
+-u16 nvmet_alloc_ctrl(const char *subsysnqn, const char *hostnqn,
+-		struct nvmet_req *req, u32 kato, struct nvmet_ctrl **ctrlp)
++u16 nvmet_alloc_ctrl(struct nvmet_alloc_ctrl_args *args,
++		struct nvmet_ctrl **ctrlp)
+ {
+ 	struct nvmet_subsys *subsys;
+ 	struct nvmet_ctrl *ctrl;
++	u32 kato = args->kato;
+ 	int ret;
+ 	u16 status;
+ 
+ 	status = NVME_SC_CONNECT_INVALID_PARAM | NVME_STATUS_DNR;
+-	subsys = nvmet_find_get_subsys(req->port, subsysnqn);
++	subsys = nvmet_find_get_subsys(args->port, args->subsysnqn);
+ 	if (!subsys) {
+ 		pr_warn("connect request for invalid subsystem %s!\n",
+-			subsysnqn);
+-		req->cqe->result.u32 = IPO_IATTR_CONNECT_DATA(subsysnqn);
+-		req->error_loc = offsetof(struct nvme_common_command, dptr);
++			args->subsysnqn);
++		*args->result = IPO_IATTR_CONNECT_DATA(subsysnqn);
++		*args->error_loc = offsetof(struct nvme_common_command, dptr);
+ 		goto out;
+ 	}
+ 
+ 	down_read(&nvmet_config_sem);
+-	if (!nvmet_host_allowed(subsys, hostnqn)) {
++	if (!nvmet_host_allowed(subsys, args->hostnqn)) {
+ 		pr_info("connect by host %s for subsystem %s not allowed\n",
+-			hostnqn, subsysnqn);
+-		req->cqe->result.u32 = IPO_IATTR_CONNECT_DATA(hostnqn);
++			args->hostnqn, args->subsysnqn);
++		*args->result = IPO_IATTR_CONNECT_DATA(hostnqn);
+ 		up_read(&nvmet_config_sem);
+ 		status = NVME_SC_CONNECT_INVALID_HOST | NVME_STATUS_DNR;
+-		req->error_loc = offsetof(struct nvme_common_command, dptr);
++		*args->error_loc = offsetof(struct nvme_common_command, dptr);
+ 		goto out_put_subsystem;
+ 	}
+ 	up_read(&nvmet_config_sem);
+@@ -1418,8 +1419,8 @@ u16 nvmet_alloc_ctrl(const char *subsysnqn, const char *hostnqn,
+ 		goto out_put_subsystem;
+ 	mutex_init(&ctrl->lock);
+ 
+-	ctrl->port = req->port;
+-	ctrl->ops = req->ops;
++	ctrl->port = args->port;
++	ctrl->ops = args->ops;
+ 
+ #ifdef CONFIG_NVME_TARGET_PASSTHRU
+ 	/* By default, set loop targets to clear IDS by default */
+@@ -1433,8 +1434,8 @@ u16 nvmet_alloc_ctrl(const char *subsysnqn, const char *hostnqn,
+ 	INIT_WORK(&ctrl->fatal_err_work, nvmet_fatal_error_handler);
+ 	INIT_DELAYED_WORK(&ctrl->ka_work, nvmet_keep_alive_timer);
+ 
+-	memcpy(ctrl->subsysnqn, subsysnqn, NVMF_NQN_SIZE);
+-	memcpy(ctrl->hostnqn, hostnqn, NVMF_NQN_SIZE);
++	memcpy(ctrl->subsysnqn, args->subsysnqn, NVMF_NQN_SIZE);
++	memcpy(ctrl->hostnqn, args->hostnqn, NVMF_NQN_SIZE);
+ 
+ 	kref_init(&ctrl->ref);
+ 	ctrl->subsys = subsys;
+@@ -1479,7 +1480,7 @@ u16 nvmet_alloc_ctrl(const char *subsysnqn, const char *hostnqn,
+ 
+ 	mutex_lock(&subsys->lock);
+ 	list_add_tail(&ctrl->subsys_entry, &subsys->ctrls);
+-	nvmet_setup_p2p_ns_map(ctrl, req);
++	nvmet_setup_p2p_ns_map(ctrl, args->p2p_client);
+ 	nvmet_debugfs_ctrl_setup(ctrl);
+ 	mutex_unlock(&subsys->lock);
+ 
+diff --git a/drivers/nvme/target/fabrics-cmd.c b/drivers/nvme/target/fabrics-cmd.c
+index c4b2eddd5666..c37bfe7b38cd 100644
+--- a/drivers/nvme/target/fabrics-cmd.c
++++ b/drivers/nvme/target/fabrics-cmd.c
+@@ -210,6 +210,14 @@ static void nvmet_execute_admin_connect(struct nvmet_req *req)
+ 	struct nvmf_connect_command *c = &req->cmd->connect;
+ 	struct nvmf_connect_data *d;
+ 	struct nvmet_ctrl *ctrl = NULL;
++	struct nvmet_alloc_ctrl_args ctrl_args = {
++		.port = req->port,
++		.ops = req->ops,
++		.p2p_client = req->p2p_client,
++		.kato = le32_to_cpu(c->kato),
++		.result = &req->cqe->result.u32,
++		.error_loc = &req->error_loc,
++	};
+ 	u16 status;
+ 	u8 dhchap_status;
+ 
+@@ -244,8 +252,11 @@ static void nvmet_execute_admin_connect(struct nvmet_req *req)
+ 
+ 	d->subsysnqn[NVMF_NQN_FIELD_LEN - 1] = '\0';
+ 	d->hostnqn[NVMF_NQN_FIELD_LEN - 1] = '\0';
+-	status = nvmet_alloc_ctrl(d->subsysnqn, d->hostnqn, req,
+-				  le32_to_cpu(c->kato), &ctrl);
++
++	ctrl_args.subsysnqn = d->subsysnqn;
++	ctrl_args.hostnqn = d->hostnqn;
++
++	status = nvmet_alloc_ctrl(&ctrl_args, &ctrl);
+ 	if (status)
+ 		goto out;
+ 
+diff --git a/drivers/nvme/target/nvmet.h b/drivers/nvme/target/nvmet.h
+index 9d4b1751cca9..7d5b6588dd6a 100644
+--- a/drivers/nvme/target/nvmet.h
++++ b/drivers/nvme/target/nvmet.h
+@@ -497,8 +497,21 @@ int nvmet_sq_init(struct nvmet_sq *sq);
+ void nvmet_ctrl_fatal_error(struct nvmet_ctrl *ctrl);
+ 
+ void nvmet_update_cc(struct nvmet_ctrl *ctrl, u32 new);
+-u16 nvmet_alloc_ctrl(const char *subsysnqn, const char *hostnqn,
+-		struct nvmet_req *req, u32 kato, struct nvmet_ctrl **ctrlp);
++
++struct nvmet_alloc_ctrl_args {
++	struct nvmet_port	*port;
++	char			*subsysnqn;
++	char			*hostnqn;
++	const struct nvmet_fabrics_ops	*ops;
++	struct device		*p2p_client;
++	u32			kato;
++	u32			*result;
++	u16			*error_loc;
++};
++
++u16 nvmet_alloc_ctrl(struct nvmet_alloc_ctrl_args *args,
++		struct nvmet_ctrl **ctrlp);
++
+ struct nvmet_ctrl *nvmet_ctrl_find_get(const char *subsysnqn,
+ 				       const char *hostnqn, u16 cntlid,
+ 				       struct nvmet_req *req);
+-- 
+2.47.0
+

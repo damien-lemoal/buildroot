@@ -1,0 +1,99 @@
+From e8bf05aef82bc1f2ef7cdec12fb09bb5b438ee98 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Sun, 27 Oct 2024 09:31:13 +0900
+Subject: [PATCH 39/40] nvmet: Fix nvmet_get_cmd_effects_nvm() for PCI target
+ controllers
+
+The I/O submission queue management commands (nvme_admin_delete_sq,
+nvme_admin_create_sq, nvme_admin_delete_cq, and nvme_admin_create_cq)
+are mandatory admin commands for I/O controllers. For a PCI target
+controller with a NVM subsystem type, these commands are thus mandatory
+and implementing support for them in the target driver a requirement.
+
+Fix nvmet_get_cmd_effects_nvm() to correctly reporte these commands as
+supported in the command effects log page for a PCI NVM target
+controller.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/target/admin-cmd.c | 22 +++++++++++++++++++---
+ drivers/nvme/target/nvmet.h     |  7 ++++++-
+ 2 files changed, 25 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/nvme/target/admin-cmd.c b/drivers/nvme/target/admin-cmd.c
+index 273bc208b64b..2a5c9bc1b369 100644
+--- a/drivers/nvme/target/admin-cmd.c
++++ b/drivers/nvme/target/admin-cmd.c
+@@ -12,6 +12,12 @@
+ #include <linux/unaligned.h>
+ #include "nvmet.h"
+ 
++static inline bool nvmet_is_pci_nvm_subsys(struct nvmet_req *req)
++{
++	return nvmet_is_pci_req(req) &&
++		nvmet_is_nvm_subsys(nvmet_req_subsys(req));
++}
++
+ u32 nvmet_get_log_page_len(struct nvme_command *cmd)
+ {
+ 	u32 len = le16_to_cpu(cmd->get_log_page.numdu);
+@@ -163,8 +169,18 @@ static void nvmet_execute_get_log_page_smart(struct nvmet_req *req)
+ 	nvmet_req_complete(req, status);
+ }
+ 
+-static void nvmet_get_cmd_effects_nvm(struct nvme_effects_log *log)
++static void nvmet_get_cmd_effects_nvm(struct nvmet_req *req,
++				      struct nvme_effects_log *log)
+ {
++	/* For a PCI target controller, advertize support for the . */
++	if (nvmet_is_pci_nvm_subsys(req)) {
++		log->acs[nvme_admin_delete_sq] =
++		log->acs[nvme_admin_create_sq] =
++		log->acs[nvme_admin_delete_cq] =
++		log->acs[nvme_admin_create_cq] =
++			cpu_to_le32(NVME_CMD_EFFECTS_CSUPP);
++	}
++
+ 	log->acs[nvme_admin_get_log_page] =
+ 	log->acs[nvme_admin_identify] =
+ 	log->acs[nvme_admin_abort_cmd] =
+@@ -205,14 +221,14 @@ static void nvmet_execute_get_log_cmd_effects_ns(struct nvmet_req *req)
+ 
+ 	switch (req->cmd->get_log_page.csi) {
+ 	case NVME_CSI_NVM:
+-		nvmet_get_cmd_effects_nvm(log);
++		nvmet_get_cmd_effects_nvm(req, log);
+ 		break;
+ 	case NVME_CSI_ZNS:
+ 		if (!IS_ENABLED(CONFIG_BLK_DEV_ZONED)) {
+ 			status = NVME_SC_INVALID_IO_CMD_SET;
+ 			goto free;
+ 		}
+-		nvmet_get_cmd_effects_nvm(log);
++		nvmet_get_cmd_effects_nvm(req, log);
+ 		nvmet_get_cmd_effects_zns(log);
+ 		break;
+ 	default:
+diff --git a/drivers/nvme/target/nvmet.h b/drivers/nvme/target/nvmet.h
+index 985f7bd17036..6bb82afba14c 100644
+--- a/drivers/nvme/target/nvmet.h
++++ b/drivers/nvme/target/nvmet.h
+@@ -661,9 +661,14 @@ static inline struct nvmet_subsys *nvmet_req_subsys(struct nvmet_req *req)
+ 	return req->sq->ctrl->subsys;
+ }
+ 
++static inline bool nvmet_is_nvm_subsys(struct nvmet_subsys *subsys)
++{
++	return subsys->type == NVME_NQN_NVME;
++}
++
+ static inline bool nvmet_is_disc_subsys(struct nvmet_subsys *subsys)
+ {
+-    return subsys->type != NVME_NQN_NVME;
++	return !nvmet_is_nvm_subsys(subsys);
+ }
+ 
+ static inline bool nvmet_is_pci_ctrl(struct nvmet_ctrl *ctrl)
+-- 
+2.47.0
+

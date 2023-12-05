@@ -1,0 +1,28 @@
+From 3bb7682587b5d1fd46321f03fade91cc7bed7da4 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Sat, 26 Oct 2024 20:14:39 +0900
+Subject: [PATCH 36/40] nvmet: Export nvmet_update_cc()
+
+Make the function nvmet_update_cc() available to target drivers by
+exporting it.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/target/core.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/nvme/target/core.c b/drivers/nvme/target/core.c
+index d4d44f75d1ee..e5e8b0a4cca4 100644
+--- a/drivers/nvme/target/core.c
++++ b/drivers/nvme/target/core.c
+@@ -1298,6 +1298,7 @@ void nvmet_update_cc(struct nvmet_ctrl *ctrl, u32 new)
+ 		ctrl->csts &= ~NVME_CSTS_SHST_CMPLT;
+ 	mutex_unlock(&ctrl->lock);
+ }
++EXPORT_SYMBOL_GPL(nvmet_update_cc);
+ 
+ static void nvmet_init_cap(struct nvmet_ctrl *ctrl)
+ {
+-- 
+2.47.0
+

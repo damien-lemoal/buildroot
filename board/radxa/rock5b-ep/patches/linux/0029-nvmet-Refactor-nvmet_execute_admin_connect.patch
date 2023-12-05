@@ -1,0 +1,160 @@
+From d677e23537a2f60b28b0d1a380959a06ca00693c Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Fri, 25 Oct 2024 23:20:38 +0900
+Subject: [PATCH 29/40] nvmet: Refactor nvmet_execute_admin_connect()
+
+Factor out the nvmet_execute_admin_connect() code that allocates and
+initializes a new target controller into the new target core function
+nvmet_ctrl_create_noqueue(). As its name implies, this new finction does
+not install any admin queue and the call to nvmet_install_queue()
+remains in nvmet_execute_admin_connect().
+
+With this change, nvmet_alloc_ctrl() is redeclared as a static function
+of the core.c file.
+
+No functional change introduced.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/target/core.c        | 41 ++++++++++++++++++++++++++++++-
+ drivers/nvme/target/fabrics-cmd.c | 23 ++---------------
+ drivers/nvme/target/nvmet.h       |  6 ++---
+ 3 files changed, 45 insertions(+), 25 deletions(-)
+
+diff --git a/drivers/nvme/target/core.c b/drivers/nvme/target/core.c
+index 96bee68a10bd..8916f2f7843a 100644
+--- a/drivers/nvme/target/core.c
++++ b/drivers/nvme/target/core.c
+@@ -1382,7 +1382,7 @@ static void nvmet_fatal_error_handler(struct work_struct *work)
+ 	ctrl->ops->delete_ctrl(ctrl);
+ }
+ 
+-u16 nvmet_alloc_ctrl(struct nvmet_alloc_ctrl_args *args,
++static u16 nvmet_alloc_ctrl(struct nvmet_alloc_ctrl_args *args,
+ 		struct nvmet_ctrl **ctrlp)
+ {
+ 	struct nvmet_subsys *subsys;
+@@ -1528,6 +1528,45 @@ static void nvmet_ctrl_free(struct kref *ref)
+ 	nvmet_subsys_put(subsys);
+ }
+ 
++u16 nvmet_ctrl_create_noqueue(struct nvmet_alloc_ctrl_args *args,
++		struct nvmet_ctrl **ctrlp)
++{
++	struct nvmet_ctrl *ctrl = NULL;
++	u8 dhchap_status;
++	u16 status;
++
++	status = nvmet_alloc_ctrl(args, &ctrl);
++	if (status)
++		goto out;
++
++	if (args->hostid)
++		uuid_copy(&ctrl->hostid, args->hostid);
++
++	dhchap_status = nvmet_setup_auth(ctrl);
++	if (dhchap_status) {
++		pr_err("Failed to setup authentication, dhchap status %u\n",
++		       dhchap_status);
++		nvmet_ctrl_put(ctrl);
++		ctrl = NULL;
++		if (dhchap_status == NVME_AUTH_DHCHAP_FAILURE_FAILED)
++			status = NVME_SC_CONNECT_INVALID_HOST | NVME_STATUS_DNR;
++		else
++			status = NVME_SC_INTERNAL;
++		goto out;
++	}
++
++	pr_info("Created %s controller %d for subsystem %s for NQN %s%s%s.\n",
++		nvmet_is_disc_subsys(ctrl->subsys) ? "discovery" : "nvm",
++		ctrl->cntlid, ctrl->subsys->subsysnqn, ctrl->hostnqn,
++		ctrl->pi_support ? " T10-PI is enabled" : "",
++		nvmet_has_auth(ctrl) ? " with DH-HMAC-CHAP" : "");
++
++out:
++	*ctrlp = ctrl;
++
++	return status;
++}
++
+ void nvmet_ctrl_put(struct nvmet_ctrl *ctrl)
+ {
+ 	kref_put(&ctrl->ref, nvmet_ctrl_free);
+diff --git a/drivers/nvme/target/fabrics-cmd.c b/drivers/nvme/target/fabrics-cmd.c
+index c37bfe7b38cd..9a3c07a89133 100644
+--- a/drivers/nvme/target/fabrics-cmd.c
++++ b/drivers/nvme/target/fabrics-cmd.c
+@@ -219,7 +219,6 @@ static void nvmet_execute_admin_connect(struct nvmet_req *req)
+ 		.error_loc = &req->error_loc,
+ 	};
+ 	u16 status;
+-	u8 dhchap_status;
+ 
+ 	if (!nvmet_check_transfer_len(req, sizeof(struct nvmf_connect_data)))
+ 		return;
+@@ -255,36 +254,18 @@ static void nvmet_execute_admin_connect(struct nvmet_req *req)
+ 
+ 	ctrl_args.subsysnqn = d->subsysnqn;
+ 	ctrl_args.hostnqn = d->hostnqn;
++	ctrl_args.hostid = &d->hostid;
+ 
+-	status = nvmet_alloc_ctrl(&ctrl_args, &ctrl);
++	status = nvmet_ctrl_create_noqueue(&ctrl_args, &ctrl);
+ 	if (status)
+ 		goto out;
+ 
+-	uuid_copy(&ctrl->hostid, &d->hostid);
+-
+-	dhchap_status = nvmet_setup_auth(ctrl);
+-	if (dhchap_status) {
+-		pr_err("Failed to setup authentication, dhchap status %u\n",
+-		       dhchap_status);
+-		nvmet_ctrl_put(ctrl);
+-		if (dhchap_status == NVME_AUTH_DHCHAP_FAILURE_FAILED)
+-			status = (NVME_SC_CONNECT_INVALID_HOST | NVME_STATUS_DNR);
+-		else
+-			status = NVME_SC_INTERNAL;
+-		goto out;
+-	}
+-
+ 	status = nvmet_install_queue(ctrl, req);
+ 	if (status) {
+ 		nvmet_ctrl_put(ctrl);
+ 		goto out;
+ 	}
+ 
+-	pr_info("creating %s controller %d for subsystem %s for NQN %s%s%s.\n",
+-		nvmet_is_disc_subsys(ctrl->subsys) ? "discovery" : "nvm",
+-		ctrl->cntlid, ctrl->subsys->subsysnqn, ctrl->hostnqn,
+-		ctrl->pi_support ? " T10-PI is enabled" : "",
+-		nvmet_has_auth(ctrl) ? " with DH-HMAC-CHAP" : "");
+ 	req->cqe->result.u32 = cpu_to_le32(nvmet_connect_result(ctrl));
+ out:
+ 	kfree(d);
+diff --git a/drivers/nvme/target/nvmet.h b/drivers/nvme/target/nvmet.h
+index 7d5b6588dd6a..8c8157aab321 100644
+--- a/drivers/nvme/target/nvmet.h
++++ b/drivers/nvme/target/nvmet.h
+@@ -502,6 +502,7 @@ struct nvmet_alloc_ctrl_args {
+ 	struct nvmet_port	*port;
+ 	char			*subsysnqn;
+ 	char			*hostnqn;
++	uuid_t			*hostid;
+ 	const struct nvmet_fabrics_ops	*ops;
+ 	struct device		*p2p_client;
+ 	u32			kato;
+@@ -509,9 +510,8 @@ struct nvmet_alloc_ctrl_args {
+ 	u16			*error_loc;
+ };
+ 
+-u16 nvmet_alloc_ctrl(struct nvmet_alloc_ctrl_args *args,
+-		struct nvmet_ctrl **ctrlp);
+-
++u16 nvmet_ctrl_create_noqueue(struct nvmet_alloc_ctrl_args *args,
++			      struct nvmet_ctrl **ctrl);
+ struct nvmet_ctrl *nvmet_ctrl_find_get(const char *subsysnqn,
+ 				       const char *hostnqn, u16 cntlid,
+ 				       struct nvmet_req *req);
+-- 
+2.47.0
+
