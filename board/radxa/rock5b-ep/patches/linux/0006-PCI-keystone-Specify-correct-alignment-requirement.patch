@@ -1,0 +1,48 @@
+From b50e4059847db7e0082abd3537414e97121fa3c9 Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <cassel@kernel.org>
+Date: Fri, 31 Jan 2025 19:29:55 +0100
+Subject: [PATCH 06/16] PCI: keystone: Specify correct alignment requirement
+
+The support for a specific iATU alignment was added in
+commit 2a9a801620ef ("PCI: endpoint: Add support to specify alignment for
+buffers allocated to BARs").
+
+This commit specifically mentions both that the alignment by each DWC
+based EP driver should match CX_ATU_MIN_REGION_SIZE, and that AM65x
+specifically has a 64 KB alignment.
+
+This also matches the CX_ATU_MIN_REGION_SIZE value specified by
+"12.2.2.4.7 PCIe Subsystem Address Translation" in the AM65x TRM:
+https://www.ti.com/lit/ug/spruid7e/spruid7e.pdf
+
+This higher value, 1 MB, was obviously an ugly hack used to be able to
+handle Resizable BARs which have a minimum size of 1 MB.
+
+Now when we actually have support for Resizable BARs, let's configure the
+iATU alignment requirement to the actual requirement.
+(BARs described as Resizable will still get aligned to 1 MB.)
+
+Cc: stable+noautosel@kernel.org # Depends on PCI endpoint Resizable BARs series
+Fixes: 23284ad677a9 ("PCI: keystone: Add support for PCIe EP in AM654x Platforms")
+Signed-off-by: Niklas Cassel <cassel@kernel.org>
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/dwc/pci-keystone.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/pci/controller/dwc/pci-keystone.c b/drivers/pci/controller/dwc/pci-keystone.c
+index fdc610ec7e5e..76a37368ae4f 100644
+--- a/drivers/pci/controller/dwc/pci-keystone.c
++++ b/drivers/pci/controller/dwc/pci-keystone.c
+@@ -970,7 +970,7 @@ static const struct pci_epc_features ks_pcie_am654_epc_features = {
+ 	.bar[BAR_3] = { .type = BAR_FIXED, .fixed_size = SZ_64K, },
+ 	.bar[BAR_4] = { .type = BAR_FIXED, .fixed_size = 256, },
+ 	.bar[BAR_5] = { .type = BAR_RESIZABLE, },
+-	.align = SZ_1M,
++	.align = SZ_64K,
+ };
+ 
+ static const struct pci_epc_features*
+-- 
+2.49.0
+

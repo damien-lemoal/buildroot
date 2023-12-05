@@ -1,0 +1,84 @@
+From 9442003acc1ccbad6c40d07f2225f31d608805e4 Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <cassel@kernel.org>
+Date: Fri, 7 Mar 2025 13:47:35 +0100
+Subject: [PATCH 09/16] PCI: dw-rockchip: Hide broken ATS capability
+
+When running the rk3588 in endpoint mode, with an Intel host with IOMMU
+enabled, the host side prints:
+
+  DMAR: VT-d detected Invalidation Time-out Error: SID 0
+
+When running the rk3588 in endpoint mode, with an AMD host with IOMMU
+enabled, the host side prints:
+
+  iommu ivhd0: AMD-Vi: Event logged [IOTLB_INV_TIMEOUT device=63:00.0 address=0x42b5b01a0]
+
+Rockchip has confirmed that the ATS support for rk3588 only works when
+running the PCIe controller in RC mode [0].
+
+Usually, to handle these issues, we add a quirk for the PCI vendor and
+device ID in drivers/pci/quirks.c with quirk_no_ats(). That is because
+we cannot usually modify the capabilities on the EP side.
+
+In this case, we can modify the capabilities on the EP side. Thus, hide the
+broken ATS capability on rk3588 when running in EP mode. That way,
+we don't need any quirk on the host side, and we see no errors on the host
+side, and we can run pci_endpoint_test successfully, with the IOMMU
+enabled on the host side.
+
+[0] https://lore.kernel.org/linux-pci/93cdce39-1ae6-4939-a3fc-db10be7564e5@rock-chips.com/
+
+Acked-by: Shawn Lin <shawn.lin@rock-chips.com>
+Signed-off-by: Niklas Cassel <cassel@kernel.org>
+---
+ drivers/pci/controller/dwc/pcie-dw-rockchip.c | 27 +++++++++++++++++++
+ 1 file changed, 27 insertions(+)
+
+diff --git a/drivers/pci/controller/dwc/pcie-dw-rockchip.c b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+index df2eaa35d045..7bf22146cfd1 100644
+--- a/drivers/pci/controller/dwc/pcie-dw-rockchip.c
++++ b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+@@ -240,6 +240,32 @@ static const struct dw_pcie_host_ops rockchip_pcie_host_ops = {
+ 	.init = rockchip_pcie_host_init,
+ };
+ 
++/*
++ * ATS does not work on rk3588 when running in EP mode.
++ * After a host has enabled ATS on the EP side, it will send an IOTLB
++ * invalidation request to the EP side. The rk3588 will never send a completion
++ * back and eventually the host will print an IOTLB_INV_TIMEOUT error, and the
++ * EP will not be operational. If we hide the ATS cap, things work as expected.
++ */
++static void rockchip_pcie_ep_hide_broken_ats_cap_rk3588(struct dw_pcie_ep *ep)
++{
++	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
++	struct device *dev = pci->dev;
++
++	/* Only hide the ATS cap for rk3588 running in EP mode */
++	if (!of_device_is_compatible(dev->of_node, "rockchip,rk3588-pcie-ep"))
++		return;
++
++	if (dw_pcie_ep_hide_ext_capability(pci, PCI_EXT_CAP_ID_SECPCI,
++					   PCI_EXT_CAP_ID_ATS))
++		dev_err(dev, "failed to hide ATS cap\n");
++}
++
++static void rockchip_pcie_ep_pre_init(struct dw_pcie_ep *ep)
++{
++	rockchip_pcie_ep_hide_broken_ats_cap_rk3588(ep);
++}
++
+ static void rockchip_pcie_ep_init(struct dw_pcie_ep *ep)
+ {
+ 	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
+@@ -312,6 +338,7 @@ rockchip_pcie_get_features(struct dw_pcie_ep *ep)
+ 
+ static const struct dw_pcie_ep_ops rockchip_pcie_ep_ops = {
+ 	.init = rockchip_pcie_ep_init,
++	.pre_init = rockchip_pcie_ep_pre_init,
+ 	.raise_irq = rockchip_pcie_raise_irq,
+ 	.get_features = rockchip_pcie_get_features,
+ };
+-- 
+2.49.0
+
