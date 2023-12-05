@@ -1,0 +1,31 @@
+From 69bf9b9d715bdb63b0864baf0eecceb4045d1463 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Thu, 6 Jul 2023 09:30:36 +0900
+Subject: [PATCH 47/49] arm64: dts: rk3399-rockpro64: Enable PCI endpoint node
+
+Add the pcie0_ep DT node to enable the rk3399 PCI controller endpoint
+mode.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ arch/arm64/boot/dts/rockchip/rk3399-rockpro64.dtsi | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/rockchip/rk3399-rockpro64.dtsi b/arch/arm64/boot/dts/rockchip/rk3399-rockpro64.dtsi
+index bca2b50e0a93..70449198a0df 100644
+--- a/arch/arm64/boot/dts/rockchip/rk3399-rockpro64.dtsi
++++ b/arch/arm64/boot/dts/rockchip/rk3399-rockpro64.dtsi
+@@ -663,6 +663,10 @@ &pcie0 {
+ 	pinctrl-0 = <&pcie_perst>;
+ 	vpcie12v-supply = <&vcc12v_dcin>;
+ 	vpcie3v3-supply = <&vcc3v3_pcie>;
++	status = "disabled";
++};
++
++&pcie0_ep {
+ 	status = "okay";
+ };
+ 
+-- 
+2.43.0
+
