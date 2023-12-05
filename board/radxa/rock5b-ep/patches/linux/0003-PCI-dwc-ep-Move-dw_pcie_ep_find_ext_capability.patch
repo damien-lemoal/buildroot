@@ -1,0 +1,75 @@
+From 68ec6ecb3dce4d5740456169d0a398bb900589e4 Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <cassel@kernel.org>
+Date: Fri, 31 Jan 2025 19:29:52 +0100
+Subject: [PATCH 03/13] PCI: dwc: ep: Move dw_pcie_ep_find_ext_capability()
+
+Move dw_pcie_ep_find_ext_capability() so that it is located next to
+dw_pcie_ep_find_capability().
+
+Additionally, a follow-up commit requires this to be defined earlier
+in order to avoid a forward declaration.
+
+Reviewed-by: Manivannan Sadhasivam <manivannan.sadhasivam@linaro.org>
+Signed-off-by: Niklas Cassel <cassel@kernel.org>
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ .../pci/controller/dwc/pcie-designware-ep.c   | 36 +++++++++----------
+ 1 file changed, 18 insertions(+), 18 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-designware-ep.c b/drivers/pci/controller/dwc/pcie-designware-ep.c
+index 8e07d432e74f..6b494781da42 100644
+--- a/drivers/pci/controller/dwc/pcie-designware-ep.c
++++ b/drivers/pci/controller/dwc/pcie-designware-ep.c
+@@ -102,6 +102,24 @@ static u8 dw_pcie_ep_find_capability(struct dw_pcie_ep *ep, u8 func_no, u8 cap)
+ 	return __dw_pcie_ep_find_next_cap(ep, func_no, next_cap_ptr, cap);
+ }
+ 
++static unsigned int dw_pcie_ep_find_ext_capability(struct dw_pcie *pci, int cap)
++{
++	u32 header;
++	int pos = PCI_CFG_SPACE_SIZE;
++
++	while (pos) {
++		header = dw_pcie_readl_dbi(pci, pos);
++		if (PCI_EXT_CAP_ID(header) == cap)
++			return pos;
++
++		pos = PCI_EXT_CAP_NEXT(header);
++		if (!pos)
++			break;
++	}
++
++	return 0;
++}
++
+ static int dw_pcie_ep_write_header(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 				   struct pci_epf_header *hdr)
+ {
+@@ -690,24 +708,6 @@ void dw_pcie_ep_deinit(struct dw_pcie_ep *ep)
+ }
+ EXPORT_SYMBOL_GPL(dw_pcie_ep_deinit);
+ 
+-static unsigned int dw_pcie_ep_find_ext_capability(struct dw_pcie *pci, int cap)
+-{
+-	u32 header;
+-	int pos = PCI_CFG_SPACE_SIZE;
+-
+-	while (pos) {
+-		header = dw_pcie_readl_dbi(pci, pos);
+-		if (PCI_EXT_CAP_ID(header) == cap)
+-			return pos;
+-
+-		pos = PCI_EXT_CAP_NEXT(header);
+-		if (!pos)
+-			break;
+-	}
+-
+-	return 0;
+-}
+-
+ static void dw_pcie_ep_init_non_sticky_registers(struct dw_pcie *pci)
+ {
+ 	unsigned int offset;
+-- 
+2.48.1
+

@@ -1,0 +1,108 @@
+From 48d5bc365f5baedff09864a49d32d59ef117d9b8 Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <cassel@kernel.org>
+Date: Fri, 7 Feb 2025 13:45:32 +0100
+Subject: [PATCH 08/13] PCI: dwc: endpoint: Enable SRIS
+
+Signed-off-by: Niklas Cassel <cassel@kernel.org>
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/dwc/pcie-dw-rockchip.c | 22 +++++++++++++++----
+ .../phy/rockchip/phy-rockchip-snps-pcie3.c    | 13 +++++++----
+ 2 files changed, 27 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-dw-rockchip.c b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+index df2eaa35d045..836ea10eafbb 100644
+--- a/drivers/pci/controller/dwc/pcie-dw-rockchip.c
++++ b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+@@ -22,6 +22,7 @@
+ #include <linux/reset.h>
+ 
+ #include "pcie-designware.h"
++#include "../../pci.h"
+ 
+ /*
+  * The upper 16 bits of PCIE_CLIENT_CONFIG are a write
+@@ -37,6 +38,7 @@
+ #define PCIE_CLIENT_EP_MODE		HIWORD_UPDATE(0xf0, 0x0)
+ #define PCIE_CLIENT_ENABLE_LTSSM	HIWORD_UPDATE_BIT(0xc)
+ #define PCIE_CLIENT_DISABLE_LTSSM	HIWORD_UPDATE(0x0c, 0x8)
++#define PCIE_CLIENT_ENABLE_SRIS		HIWORD_UPDATE_BIT(BIT(11))
+ #define PCIE_CLIENT_INTR_STATUS_MISC	0x10
+ #define PCIE_CLIENT_INTR_MASK_MISC	0x24
+ #define PCIE_SMLH_LINKUP		BIT(16)
+@@ -473,8 +475,14 @@ static int rockchip_pcie_configure_rc(struct platform_device *pdev,
+ 	val = HIWORD_UPDATE_BIT(PCIE_LTSSM_ENABLE_ENHANCE);
+ 	rockchip_pcie_writel_apb(rockchip, val, PCIE_CLIENT_HOT_RESET_CTRL);
+ 
+-	rockchip_pcie_writel_apb(rockchip, PCIE_CLIENT_RC_MODE,
+-				 PCIE_CLIENT_GENERAL_CONTROL);
++	/*
++	 * TODO: Add a proper DT property for SRIS. For now (since SRIS requires
++	 * Gen3 PHY), enable SRIS unconditionally for the Gen3 PHY.
++	 */
++	val = PCIE_CLIENT_RC_MODE;
++	if (of_pci_get_max_link_speed(dev->of_node) == 3)
++		val |= PCIE_CLIENT_ENABLE_SRIS;
++	rockchip_pcie_writel_apb(rockchip, val, PCIE_CLIENT_GENERAL_CONTROL);
+ 
+ 	pp = &rockchip->pci.pp;
+ 	pp->ops = &rockchip_pcie_host_ops;
+@@ -519,8 +527,14 @@ static int rockchip_pcie_configure_ep(struct platform_device *pdev,
+ 	val = HIWORD_UPDATE_BIT(PCIE_LTSSM_ENABLE_ENHANCE);
+ 	rockchip_pcie_writel_apb(rockchip, val, PCIE_CLIENT_HOT_RESET_CTRL);
+ 
+-	rockchip_pcie_writel_apb(rockchip, PCIE_CLIENT_EP_MODE,
+-				 PCIE_CLIENT_GENERAL_CONTROL);
++	/*
++	 * TODO: Add a proper DT property for SRIS. For now, enable SRIS mode
++	 * unconditionally for the Gen3 PHY.
++	 */
++	val = PCIE_CLIENT_EP_MODE;
++	if (of_pci_get_max_link_speed(dev->of_node) == 3)
++		val |= PCIE_CLIENT_ENABLE_SRIS;
++	rockchip_pcie_writel_apb(rockchip, val, PCIE_CLIENT_GENERAL_CONTROL);
+ 
+ 	rockchip->pci.ep.ops = &rockchip_pcie_ep_ops;
+ 	rockchip->pci.ep.page_size = SZ_64K;
+diff --git a/drivers/phy/rockchip/phy-rockchip-snps-pcie3.c b/drivers/phy/rockchip/phy-rockchip-snps-pcie3.c
+index 4e8ffd173096..edbe8549a1bd 100644
+--- a/drivers/phy/rockchip/phy-rockchip-snps-pcie3.c
++++ b/drivers/phy/rockchip/phy-rockchip-snps-pcie3.c
+@@ -44,6 +44,7 @@
+ #define RK3588_BIFURCATION_LANE_0_1		BIT(0)
+ #define RK3588_BIFURCATION_LANE_2_3		BIT(1)
+ #define RK3588_LANE_AGGREGATION		BIT(2)
++#define RK3588_SRIS_MODE_EN			((BIT(6) << 16) |  BIT(6))
+ #define RK3588_RX_CMN_REFCLK_MODE_EN		((BIT(7) << 16) |  BIT(7))
+ #define RK3588_RX_CMN_REFCLK_MODE_DIS		(BIT(7) << 16)
+ #define RK3588_PCIE1LN_SEL_EN			(GENMASK(1, 0) << 16)
+@@ -144,18 +145,22 @@ static int rockchip_p3phy_rk3588_init(struct rockchip_p3phy_priv *priv)
+ 	u8 mode = RK3588_LANE_AGGREGATION; /* default */
+ 	int ret;
+ 
++	/*
++	 * TODO: Add a proper DT property for SRIS. For now (since SRIS requires
++	 * refclk_mode == 0), enable SRIS unconditionally when refclk_mode == 0.
++	 */
+ 	regmap_write(priv->phy_grf, RK3588_PCIE3PHY_GRF_PHY0_LN0_CON1,
+ 		     priv->rx_cmn_refclk_mode[0] ? RK3588_RX_CMN_REFCLK_MODE_EN :
+-		     RK3588_RX_CMN_REFCLK_MODE_DIS);
++		     (RK3588_RX_CMN_REFCLK_MODE_DIS | RK3588_SRIS_MODE_EN));
+ 	regmap_write(priv->phy_grf, RK3588_PCIE3PHY_GRF_PHY0_LN1_CON1,
+ 		     priv->rx_cmn_refclk_mode[1] ? RK3588_RX_CMN_REFCLK_MODE_EN :
+-		     RK3588_RX_CMN_REFCLK_MODE_DIS);
++		     (RK3588_RX_CMN_REFCLK_MODE_DIS | RK3588_SRIS_MODE_EN));
+ 	regmap_write(priv->phy_grf, RK3588_PCIE3PHY_GRF_PHY1_LN0_CON1,
+ 		     priv->rx_cmn_refclk_mode[2] ? RK3588_RX_CMN_REFCLK_MODE_EN :
+-		     RK3588_RX_CMN_REFCLK_MODE_DIS);
++		     (RK3588_RX_CMN_REFCLK_MODE_DIS | RK3588_SRIS_MODE_EN));
+ 	regmap_write(priv->phy_grf, RK3588_PCIE3PHY_GRF_PHY1_LN1_CON1,
+ 		     priv->rx_cmn_refclk_mode[3] ? RK3588_RX_CMN_REFCLK_MODE_EN :
+-		     RK3588_RX_CMN_REFCLK_MODE_DIS);
++		     (RK3588_RX_CMN_REFCLK_MODE_DIS | RK3588_SRIS_MODE_EN));
+ 
+ 	/* Deassert PCIe PMA output clamp mode */
+ 	regmap_write(priv->phy_grf, RK3588_PCIE3PHY_GRF_CMN_CON0, BIT(8) | BIT(24));
+-- 
+2.48.1
+
