@@ -1,0 +1,34 @@
+From b91eb99f1578fc6afc6958d9fc1c56d25ab1c934 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Thu, 21 Dec 2023 11:10:36 +0900
+Subject: [PATCH 30/46] arm64: dts: rk3399: Enable PCIe gen2
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ arch/arm64/boot/dts/rockchip/rk3399.dtsi | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/boot/dts/rockchip/rk3399.dtsi b/arch/arm64/boot/dts/rockchip/rk3399.dtsi
+index 6e12c5a920ca..4d192db6a7ce 100644
+--- a/arch/arm64/boot/dts/rockchip/rk3399.dtsi
++++ b/arch/arm64/boot/dts/rockchip/rk3399.dtsi
+@@ -246,7 +246,7 @@ pcie0: pcie@f8000000 {
+ 				<0 0 0 2 &pcie0_intc 1>,
+ 				<0 0 0 3 &pcie0_intc 2>,
+ 				<0 0 0 4 &pcie0_intc 3>;
+-		max-link-speed = <1>;
++		max-link-speed = <2>;
+ 		msi-map = <0x0 &its 0x0 0x1000>;
+ 		phys = <&pcie_phy 0>, <&pcie_phy 1>,
+ 		       <&pcie_phy 2>, <&pcie_phy 3>;
+@@ -280,6 +280,7 @@ pcie0_ep: pcie-ep@f8000000 {
+ 			      "hclk", "pm";
+ 		max-functions = /bits/ 8 <8>;
+ 		num-lanes = <4>;
++		max-link-speed = <2>;
+ 		resets = <&cru SRST_PCIE_CORE>, <&cru SRST_PCIE_MGMT>,
+ 			 <&cru SRST_PCIE_MGMT_STICKY>, <&cru SRST_PCIE_PIPE>,
+ 			 <&cru SRST_PCIE_PM>, <&cru SRST_P_PCIE>,
+-- 
+2.44.0
+
