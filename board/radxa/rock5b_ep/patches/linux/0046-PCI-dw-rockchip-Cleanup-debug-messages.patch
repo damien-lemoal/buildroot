@@ -1,0 +1,211 @@
+From b27feaf82a4e255afdac01891d10b718cc95b1d1 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Thu, 14 Dec 2023 10:50:35 +0900
+Subject: [PATCH 46/47] PCI: dw-rockchip: Cleanup debug messages
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/dwc/pcie-dw-rockchip.c | 93 ++++++++++---------
+ 1 file changed, 49 insertions(+), 44 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-dw-rockchip.c b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+index 23eee0c46810..ccb77c8d103c 100644
+--- a/drivers/pci/controller/dwc/pcie-dw-rockchip.c
++++ b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+@@ -335,8 +335,11 @@ static void rockchip_pcie_phy_deinit(struct rockchip_pcie *rockchip)
+ 
+ static int rockchip_perst_assert(struct rockchip_pcie *rockchip)
+ {
++	struct device *dev = rockchip->pci.dev;
+ 	int ret;
+ 
++	dev_info(dev, "PERST asserted, shutting down the link\n");
++
+ 	if (rockchip->ep_state == PCIE_EP_STATE_DISABLED)
+ 		return 0;
+ 
+@@ -361,34 +364,40 @@ static int rockchip_perst_assert(struct rockchip_pcie *rockchip)
+ 
+ static int rockchip_perst_deassert(struct rockchip_pcie *rockchip)
+ {
++	struct device *dev = rockchip->pci.dev;
+ 	int ret;
+ 	u32 val;
+ 
++	dev_info(dev, "PERST de-asserted, starting link training\n");
++
+ 	if (rockchip->ep_state == PCIE_EP_STATE_ENABLED)
+ 		return 0;
+ 
+-	//TODO: verify that all core registers are the same here as after probe
+-
+-	//also things like unmasked IRQs, ENHANCED LTSSM, EP mode, etc...
+-
+-	//probably need to do a core reset here... (enable_resources())
+ 	if (rockchip->vpcie3v3) {
+ 		ret = regulator_enable(rockchip->vpcie3v3);
+-		if (ret)
+-			return ret; //TODO: goto
++		if (ret) {
++			dev_err(dev, "Enable regulator failed %d\n", ret);
++			return ret;
++		}
+ 	}
+ 
+ 	ret = rockchip_pcie_phy_init(rockchip);
+-	if (ret)
+-		return ret; //TODO: goto
++	if (ret) {
++		dev_err(dev, "PHY init failed %d\n", ret);
++		return ret;
++	}
+ 
+ 	ret = reset_control_deassert(rockchip->rst);
+-	if (ret)
+-		return ret; //TODO: goto
++	if (ret) {
++		dev_err(dev, "Reset control deassert failed %d\n", ret);
++		return ret;
++	}
+ 
+ 	ret = rockchip_pcie_clk_init(rockchip);
+-	if (ret)
++	if (ret) {
++		dev_err(dev, "clk init failed %d\n", ret);
+ 		return ret;
++	}
+ 
+ 	/* LTSSM enable control mode */
+ 	val = HIWORD_UPDATE_BIT(PCIE_LTSSM_ENABLE_ENHANCE);
+@@ -404,9 +413,7 @@ static int rockchip_perst_deassert(struct rockchip_pcie *rockchip)
+ 
+ 	ret = dw_pcie_ep_init_complete(&rockchip->pci.ep);
+ 	if (ret) {
+-		//dev_err(dev, "Failed to complete initialization: %d\n", ret);
+-		pr_err("Failed to complete initialization: %d\n", ret);
+-		//TODO: goto error
++		dev_err(dev, "Failed to complete initialization: %d\n", ret);
+ 		return ret;
+ 	}
+ 
+@@ -429,36 +436,36 @@ static irqreturn_t rockchip_pcie_sys_irq_handler(int irq, void *arg)
+ {
+ 	struct rockchip_pcie *rockchip = arg;
+ 	struct dw_pcie *pci = &rockchip->pci;
++	struct device *dev = pci->dev;
+ 	u32 reg;
+ 	u32 val;
+ 
+ 	reg = rockchip_pcie_readl_apb(rockchip, PCIE_CLIENT_INTR_STATUS_MISC);
+ 
+-	pr_info("pci: PCIE_CLIENT_INTR_STATUS_MISC: %#x\n", reg);
+-	pr_info("LTSSM_STATUS: %#x\n",
+-	       rockchip_pcie_readl_apb(rockchip, PCIE_CLIENT_LTSSM_STATUS));
++	dev_info(dev, "pci: PCIE_CLIENT_INTR_STATUS_MISC: %#x\n", reg);
++	dev_info(dev, "    PHY is %s\n",
++		 (reg & PCIE_SMLH_LINKUP) ? "UP" : "DOWN");
++	dev_info(dev, "    DATA link is %s\n",
++		 (reg & PCIE_RDLH_LINKUP) ? "UP" : "DOWN");
++	dev_info(dev, "    LTSSM_STATUS: %#x\n",
++		 rockchip_pcie_readl_apb(rockchip, PCIE_CLIENT_LTSSM_STATUS));
+ 
+ 	if (reg & BIT(2)) {
+ 		unsigned int offset, nbars;
+ 		int i;
+ 
+-		val = rockchip_pcie_readl_apb(rockchip, PCIE_CLIENT_LTSSM_STATUS);
+-		pr_err("pci: hot reset or link-down reset (LTSSM_STATUS: %#x)\n", val);
++		dev_info(dev,
++			 "Hot reset or link-down reset (LTSSM_STATUS: %#x)\n",
++			 rockchip_pcie_readl_apb(rockchip,
++						 PCIE_CLIENT_LTSSM_STATUS));
+ 
+ 		offset = dw_pcie_find_ext_capability(pci, PCI_EXT_CAP_ID_REBAR);
+ 		val = dw_pcie_readl_dbi(pci, offset + PCI_REBAR_CTRL);
+ 		nbars = (val & PCI_REBAR_CTRL_NBAR_MASK) >>
+ 			PCI_REBAR_CTRL_NBAR_SHIFT;
+ 
+-		//todo: clear them to same as fixed size?
+-		//or drop fixed size...?
+-		for (i = 0; i < nbars; i++, offset += PCI_REBAR_CTRL) {
+-			dw_pcie_writel_dbi(pci, offset + PCI_REBAR_CTRL, 0x0); // clear, 1MB
+-			pr_err("pci: BAR%d CAP: %#x CTRL: %#x\n",
+-			       i,
+-			       dw_pcie_readl_dbi(pci, offset + PCI_REBAR_CAP),
+-			       dw_pcie_readl_dbi(pci, offset + PCI_REBAR_CTRL));
+-		}
++		for (i = 0; i < nbars; i++, offset += PCI_REBAR_CTRL)
++			dw_pcie_writel_dbi(pci, offset + PCI_REBAR_CTRL, 0x0);
+ 
+ 		/* Setup command register */
+ 		val = dw_pcie_readl_dbi(pci, PCI_COMMAND);
+@@ -471,8 +478,8 @@ static irqreturn_t rockchip_pcie_sys_irq_handler(int irq, void *arg)
+ 	if (reg & PCIE_RDLH_LINK_UP_CHGED) {
+ 		val = rockchip_pcie_readl_apb(rockchip, PCIE_CLIENT_LTSSM_STATUS);
+ 		if ((val & PCIE_LINKUP) == PCIE_LINKUP) {
++			dev_info(dev, "Link UP (LTSSM_STATUS: %#x)\n", val);
+ 			dw_pcie_ep_linkup(&pci->ep);
+-			pr_err("pci: link up! (LTSSM_STATUS: %#x)\n", val);
+ 		}
+ 	}
+ 
+@@ -484,16 +491,11 @@ static irqreturn_t rockchip_pcie_sys_irq_handler(int irq, void *arg)
+ static irqreturn_t rockchip_pcie_ep_perst_irq_thread(int irq, void *data)
+ {
+ 	struct rockchip_pcie *rockchip = data;
+-	int perst;
+ 
+-	perst = gpiod_get_value(rockchip->rst_gpio);
+-	if (perst) {
+-		pr_err("pci: PERST asserted by host. Shutting down the PCIe link!\n");
++	if (gpiod_get_value(rockchip->rst_gpio))
+ 		rockchip_perst_assert(rockchip);
+-	} else {
+-		pr_err("pci: PERST de-asserted by host. Starting link training!\n");
++	else
+ 		rockchip_perst_deassert(rockchip);
+-	}
+ 
+ 	return IRQ_HANDLED;
+ }
+@@ -519,7 +521,8 @@ static int rockchip_pcie_resource_get(struct platform_device *pdev,
+ 
+ 		ret = gpiod_to_irq(rockchip->rst_gpio);
+ 		if (ret < 0) {
+-			dev_err(&pdev->dev, "Failed to get IRQ for PERST GPIO: %d\n", ret);
++			dev_err(&pdev->dev,
++				"Failed to get IRQ for PERST GPIO: %d\n", ret);
+ 			return ret;
+ 		}
+ 		rockchip->perst_irq = (unsigned int)ret;
+@@ -534,7 +537,8 @@ static int rockchip_pcie_resource_get(struct platform_device *pdev,
+ 						IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
+ 						"perst_irq", rockchip);
+ 		if (ret < 0) {
+-			dev_err(&pdev->dev, "Failed to request IRQ for PERST: %d\n", ret);
++			dev_err(&pdev->dev,
++				"Failed to request IRQ for PERST: %d\n", ret);
+ 			return ret;
+ 		}
+ 	}
+@@ -613,11 +617,12 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
+ 	val = HIWORD_UPDATE_BIT(PCIE_LTSSM_ENABLE_ENHANCE);
+ 	rockchip_pcie_writel_apb(rockchip, val, PCIE_CLIENT_HOT_RESET_CTRL);
+ 
+-	// TODO: either move this code do a add_ep() function, or if mode == EP
+-	irq = platform_get_irq_byname(pdev, "sys");
+-	if (irq < 0) {
+-		dev_err(dev, "missing sys IRQ resource\n");
+-		return -EINVAL;
++	if (rockchip->mode == DW_PCIE_EP_TYPE) {
++		irq = platform_get_irq_byname(pdev, "sys");
++		if (irq < 0) {
++			dev_err(dev, "missing sys IRQ resource\n");
++			return -EINVAL;
++		}
+ 	}
+ 
+ 	ret = devm_request_irq(dev, irq, rockchip_pcie_sys_irq_handler,
+-- 
+2.43.0
+
