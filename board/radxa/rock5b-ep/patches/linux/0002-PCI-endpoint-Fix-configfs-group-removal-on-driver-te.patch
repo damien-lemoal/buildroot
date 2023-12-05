@@ -1,0 +1,53 @@
+From d9d458d043a4a77f41cd85097ee939a4c19d8106 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Tue, 17 Jun 2025 09:28:49 +0900
+Subject: [PATCH 2/8] PCI: endpoint: Fix configfs group removal on driver
+ teardown
+
+An endpoint driver configfs attributes group is added to the
+epf_group list of struct pci_epf_driver by pci_epf_add_cfs() but an
+added group is not removed from this list when the attribute group is
+unregistered with pci_ep_cfs_remove_epf_group().
+
+Add the missing list_del_init() call in fpci_ep_cfs_remove_epf_group()
+to correctly remove the attribute group from the driver list.
+
+With this change, once the loop over all attribute groups in
+pci_epf_remove_cfs() completes, the driver epf_group list should be
+empty. Add a WARN_ON() to make sure of that.
+
+Fixes: ef1433f717a2 ("PCI: endpoint: Create configfs entry for each pci_epf_device_id table entry")
+Cc: stable@vger.kernel.org
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/endpoint/pci-ep-cfs.c   | 1 +
+ drivers/pci/endpoint/pci-epf-core.c | 1 +
+ 2 files changed, 2 insertions(+)
+
+diff --git a/drivers/pci/endpoint/pci-ep-cfs.c b/drivers/pci/endpoint/pci-ep-cfs.c
+index d712c7a866d2..63876537e7dc 100644
+--- a/drivers/pci/endpoint/pci-ep-cfs.c
++++ b/drivers/pci/endpoint/pci-ep-cfs.c
+@@ -691,6 +691,7 @@ void pci_ep_cfs_remove_epf_group(struct config_group *group)
+ 	if (IS_ERR_OR_NULL(group))
+ 		return;
+ 
++	list_del_init(&group->group_entry);
+ 	configfs_unregister_default_group(group);
+ }
+ EXPORT_SYMBOL(pci_ep_cfs_remove_epf_group);
+diff --git a/drivers/pci/endpoint/pci-epf-core.c b/drivers/pci/endpoint/pci-epf-core.c
+index defc6aecfdef..167dc6ee63f7 100644
+--- a/drivers/pci/endpoint/pci-epf-core.c
++++ b/drivers/pci/endpoint/pci-epf-core.c
+@@ -338,6 +338,7 @@ static void pci_epf_remove_cfs(struct pci_epf_driver *driver)
+ 	mutex_lock(&pci_epf_mutex);
+ 	list_for_each_entry_safe(group, tmp, &driver->epf_group, group_entry)
+ 		pci_ep_cfs_remove_epf_group(group);
++	WARN_ON(!list_empty(&driver->epf_group));
+ 	mutex_unlock(&pci_epf_mutex);
+ }
+ 
+-- 
+2.49.0
+
