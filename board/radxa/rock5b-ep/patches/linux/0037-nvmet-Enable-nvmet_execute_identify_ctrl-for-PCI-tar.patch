@@ -1,0 +1,43 @@
+From bb2bbbfe89816f65aed46b4b0fadb0b027a8f1d0 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Sun, 27 Oct 2024 08:59:21 +0900
+Subject: [PATCH 37/38] nvmet: Enable nvmet_execute_identify_ctrl() for PCI
+ target controllers
+
+Support for SGL is optional for PCI controllers. For now, assume that
+there is no support and modify nvmet_execute_identify_ctrl() using the
+nvmet_is_pci_ctrl() helper function to not set the sgls field of
+the identify controller data.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/target/admin-cmd.c | 13 ++++++++-----
+ 1 file changed, 8 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/nvme/target/admin-cmd.c b/drivers/nvme/target/admin-cmd.c
+index 07abd594a4cc..85a6d6173105 100644
+--- a/drivers/nvme/target/admin-cmd.c
++++ b/drivers/nvme/target/admin-cmd.c
+@@ -455,11 +455,14 @@ static void nvmet_execute_identify_ctrl(struct nvmet_req *req)
+ 	id->awun = 0;
+ 	id->awupf = 0;
+ 
+-	id->sgls = cpu_to_le32(1 << 0);	/* we always support SGLs */
+-	if (ctrl->ops->flags & NVMF_KEYED_SGLS)
+-		id->sgls |= cpu_to_le32(1 << 2);
+-	if (req->port->inline_data_size)
+-		id->sgls |= cpu_to_le32(1 << 20);
++	/* We always support SGLs, except for PCI target controllers */
++	if (!nvmet_is_pci_ctrl(req->sq->ctrl)) {
++		id->sgls = cpu_to_le32(1 << 0);
++		if (ctrl->ops->flags & NVMF_KEYED_SGLS)
++			id->sgls |= cpu_to_le32(1 << 2);
++		if (req->port->inline_data_size)
++			id->sgls |= cpu_to_le32(1 << 20);
++	}
+ 
+ 	strscpy(id->subnqn, ctrl->subsys->subsysnqn, sizeof(id->subnqn));
+ 
+-- 
+2.47.0
+
