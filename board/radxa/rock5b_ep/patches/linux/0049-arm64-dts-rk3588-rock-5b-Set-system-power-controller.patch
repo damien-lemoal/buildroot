@@ -1,0 +1,31 @@
+From 690f7488d1343b24dc0ef51357442866c058b716 Mon Sep 17 00:00:00 2001
+From: Rick Wertenbroek <rick.wertenbroek@gmail.com>
+Date: Wed, 17 Jan 2024 13:37:24 +0100
+Subject: [PATCH 49/51] arm64: dts: rk3588-rock-5b: Set system power controller
+
+Indicate that pmic@0  is the system power controller so that commands
+such as poweroff actually shutdown the board power (instead of
+rebooting).
+
+Signed-off-by: Rick Wertenbroek <rick.wertenbroek@gmail.com>
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ arch/arm64/boot/dts/rockchip/rk3588-rock-5b.dts | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/arch/arm64/boot/dts/rockchip/rk3588-rock-5b.dts b/arch/arm64/boot/dts/rockchip/rk3588-rock-5b.dts
+index 741f631db345..e390d34c4bb0 100644
+--- a/arch/arm64/boot/dts/rockchip/rk3588-rock-5b.dts
++++ b/arch/arm64/boot/dts/rockchip/rk3588-rock-5b.dts
+@@ -423,6 +423,8 @@ pmic@0 {
+ 		pinctrl-0 = <&pmic_pins>, <&rk806_dvs1_null>,
+ 			    <&rk806_dvs2_null>, <&rk806_dvs3_null>;
+ 
++		system-power-controller;
++
+ 		vcc1-supply = <&vcc5v0_sys>;
+ 		vcc2-supply = <&vcc5v0_sys>;
+ 		vcc3-supply = <&vcc5v0_sys>;
+-- 
+2.44.0
+
