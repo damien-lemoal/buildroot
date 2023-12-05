@@ -1,0 +1,38 @@
+From 0ee80133ac8d8617a0fca1d580f1a6e84ab49488 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Thu, 8 May 2025 15:37:50 +0900
+Subject: [PATCH 11/12] nvmet: pci-epf: Improve debug message
+
+Improve the debug message of nvmet_pci_epf_create_cq() to indicate if a
+completion queue IRQ is disabled.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+Reviewed-by: Niklas Cassel <cassel@kernel.org>
+---
+ drivers/nvme/target/pci-epf.c | 10 ++++++++--
+ 1 file changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/nvme/target/pci-epf.c b/drivers/nvme/target/pci-epf.c
+index a6ccf3fcccc2..94a908b2340e 100644
+--- a/drivers/nvme/target/pci-epf.c
++++ b/drivers/nvme/target/pci-epf.c
+@@ -1321,8 +1321,14 @@ static u16 nvmet_pci_epf_create_cq(struct nvmet_ctrl *tctrl,
+ 
+ 	set_bit(NVMET_PCI_EPF_Q_LIVE, &cq->flags);
+ 
+-	dev_dbg(ctrl->dev, "CQ[%u]: %u entries of %zu B, IRQ vector %u\n",
+-		cqid, qsize, cq->qes, cq->vector);
++	if (test_bit(NVMET_PCI_EPF_Q_IRQ_ENABLED, &cq->flags))
++		dev_dbg(ctrl->dev,
++			"CQ[%u]: %u entries of %zu B, IRQ vector %u\n",
++			cqid, qsize, cq->qes, cq->vector);
++	else
++		dev_dbg(ctrl->dev,
++			"CQ[%u]: %u entries of %zu B, IRQ disabled\n",
++			cqid, qsize, cq->qes);
+ 
+ 	return NVME_SC_SUCCESS;
+ 
+-- 
+2.49.0
+

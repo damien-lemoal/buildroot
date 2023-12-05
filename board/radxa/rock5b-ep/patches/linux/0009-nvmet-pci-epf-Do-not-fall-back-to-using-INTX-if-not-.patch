@@ -1,0 +1,46 @@
+From d2f90d89d5b9b478157890e9b6373573000234a8 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Thu, 8 May 2025 15:15:15 +0900
+Subject: [PATCH 09/12] nvmet: pci-epf: Do not fall back to using INTX if not
+ supported
+
+Some endpoint PCIe controllers do not support raising legacy INTX
+interrupts. This support is indicated by the intx_capable field of
+struct pci_epc_features. Modify nvmet_pci_epf_raise_irq() to not
+automatically fallback to trying raising an INTX interrupt after an MSI
+or MSI-X error if the controller does not support INTX.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/target/pci-epf.c | 12 +++++++-----
+ 1 file changed, 7 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/nvme/target/pci-epf.c b/drivers/nvme/target/pci-epf.c
+index d5442991f2fb..bde7818c673d 100644
+--- a/drivers/nvme/target/pci-epf.c
++++ b/drivers/nvme/target/pci-epf.c
+@@ -636,14 +636,16 @@ static void nvmet_pci_epf_raise_irq(struct nvmet_pci_epf_ctrl *ctrl,
+ 	switch (nvme_epf->irq_type) {
+ 	case PCI_IRQ_MSIX:
+ 	case PCI_IRQ_MSI:
++		/*
++		 * If we fail to raise an MSI or MSI-X interrupt, it is likely
++		 * because the host is using legacy INTX IRQs (e.g. BIOS,
++		 * grub), but we can fallback to the INTX type only if the
++		 * endpoint controller supports this type.
++		 */
+ 		ret = pci_epc_raise_irq(epf->epc, epf->func_no, epf->vfunc_no,
+ 					nvme_epf->irq_type, cq->vector + 1);
+-		if (!ret)
++		if (!ret || !nvme_epf->epc_features->intx_capable)
+ 			break;
+-		/*
+-		 * If we got an error, it is likely because the host is using
+-		 * legacy IRQs (e.g. BIOS, grub).
+-		 */
+ 		fallthrough;
+ 	case PCI_IRQ_INTX:
+ 		ret = pci_epc_raise_irq(epf->epc, epf->func_no, epf->vfunc_no,
+-- 
+2.49.0
+

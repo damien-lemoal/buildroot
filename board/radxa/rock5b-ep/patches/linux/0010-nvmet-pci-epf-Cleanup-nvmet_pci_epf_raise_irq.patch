@@ -1,0 +1,59 @@
+From af198712564b91f498b48ff70fc7e027f231abaf Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Thu, 8 May 2025 15:19:56 +0900
+Subject: [PATCH 10/12] nvmet: pci-epf: Cleanup nvmet_pci_epf_raise_irq()
+
+There is no point in taking the controller irq_lock and calling
+nvmet_pci_epf_should_raise_irq() for a completion queue which does not
+have IRQ enabled (NVMET_PCI_EPF_Q_IRQ_ENABLED flag is not set).
+Move the test for the NVMET_PCI_EPF_Q_IRQ_ENABLED flag out of
+nvmet_pci_epf_should_raise_irq() to the top of nvmet_pci_epf_raise_irq()
+to return early when no IRQ should be raised.
+
+Also, use dev_err_ratelimited() to avoid a message storm under load when
+raising IRQs is failing.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+Reviewed-by: Niklas Cassel <cassel@kernel.org>
+---
+ drivers/nvme/target/pci-epf.c | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/drivers/nvme/target/pci-epf.c b/drivers/nvme/target/pci-epf.c
+index bde7818c673d..a6ccf3fcccc2 100644
+--- a/drivers/nvme/target/pci-epf.c
++++ b/drivers/nvme/target/pci-epf.c
+@@ -596,9 +596,6 @@ static bool nvmet_pci_epf_should_raise_irq(struct nvmet_pci_epf_ctrl *ctrl,
+ 	struct nvmet_pci_epf_irq_vector *iv = cq->iv;
+ 	bool ret;
+ 
+-	if (!test_bit(NVMET_PCI_EPF_Q_IRQ_ENABLED, &cq->flags))
+-		return false;
+-
+ 	/* IRQ coalescing for the admin queue is not allowed. */
+ 	if (!cq->qid)
+ 		return true;
+@@ -625,7 +622,8 @@ static void nvmet_pci_epf_raise_irq(struct nvmet_pci_epf_ctrl *ctrl,
+ 	struct pci_epf *epf = nvme_epf->epf;
+ 	int ret = 0;
+ 
+-	if (!test_bit(NVMET_PCI_EPF_Q_LIVE, &cq->flags))
++	if (!test_bit(NVMET_PCI_EPF_Q_LIVE, &cq->flags) ||
++	    !test_bit(NVMET_PCI_EPF_Q_IRQ_ENABLED, &cq->flags))
+ 		return;
+ 
+ 	mutex_lock(&ctrl->irq_lock);
+@@ -658,7 +656,9 @@ static void nvmet_pci_epf_raise_irq(struct nvmet_pci_epf_ctrl *ctrl,
+ 	}
+ 
+ 	if (ret)
+-		dev_err(ctrl->dev, "Failed to raise IRQ (err=%d)\n", ret);
++		dev_err_ratelimited(ctrl->dev,
++				    "CQ[%u]: Failed to raise IRQ (err=%d)\n",
++				    cq->qid, ret);
+ 
+ unlock:
+ 	mutex_unlock(&ctrl->irq_lock);
+-- 
+2.49.0
+
