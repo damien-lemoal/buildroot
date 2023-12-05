@@ -1,0 +1,328 @@
+From 6a026fd804f11c18adefc70786d9998a9e1d02b2 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Sat, 30 Nov 2024 13:13:26 +0900
+Subject: [PATCH 40/40] nvmet: rework pci-ep IOD execution path and DMA
+ transfers
+
+Much better performance:
+ - max IOPS increases from 40 KIOPS to 73 KIOPS
+ - max throughput increases from 2.4 GB/s to 2.7 GB/s
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/target/pci-ep.c | 194 +++++++++++++----------------------
+ 1 file changed, 73 insertions(+), 121 deletions(-)
+
+diff --git a/drivers/nvme/target/pci-ep.c b/drivers/nvme/target/pci-ep.c
+index 09dc55f628b7..f05bb5d6c606 100644
+--- a/drivers/nvme/target/pci-ep.c
++++ b/drivers/nvme/target/pci-ep.c
+@@ -317,24 +317,18 @@ static void nvmet_pciep_epf_deinit_dma(struct nvmet_pciep_epf *nvme_epf)
+ 	mutex_destroy(&nvme_epf->dma_tx_lock);
+ }
+ 
+-static void nvmet_pciep_epf_dma_callback(void *param)
+-{
+-	complete(param);
+-}
+-
+ static int nvmet_pciep_epf_dma_transfer(struct nvmet_pciep_epf *nvme_epf,
+ 		struct nvmet_pciep_segment *seg, enum dma_data_direction dir)
+ {
+ 	struct pci_epf *epf = nvme_epf->epf;
+ 	struct dma_async_tx_descriptor *desc;
+-	DECLARE_COMPLETION_ONSTACK(dma_done);
+ 	struct dma_slave_config sconf = {};
+ 	struct device *dev = &epf->dev;
+ 	struct device *dma_dev;
+ 	struct dma_chan *chan;
+-	struct mutex *lock;
+-	dma_addr_t dma_addr;
+ 	dma_cookie_t cookie;
++	dma_addr_t dma_addr;
++	struct mutex *lock;
+ 	int ret;
+ 
+ 	switch (dir) {
+@@ -368,18 +362,14 @@ static int nvmet_pciep_epf_dma_transfer(struct nvmet_pciep_epf *nvme_epf,
+ 		goto unmap;
+ 	}
+ 
+-	desc = dmaengine_prep_slave_single(chan, dma_addr,
+-					   seg->length, sconf.direction,
+-					   DMA_CTRL_ACK | DMA_PREP_INTERRUPT);
++	desc = dmaengine_prep_slave_single(chan, dma_addr, seg->length,
++					   sconf.direction, DMA_CTRL_ACK);
+ 	if (!desc) {
+ 		dev_err(dev, "Failed to prepare DMA\n");
+ 		ret = -EIO;
+ 		goto unmap;
+ 	}
+ 
+-	desc->callback = nvmet_pciep_epf_dma_callback;
+-	desc->callback_param = &dma_done;
+-
+ 	cookie = dmaengine_submit(desc);
+ 	ret = dma_submit_error(cookie);
+ 	if (ret) {
+@@ -387,16 +377,12 @@ static int nvmet_pciep_epf_dma_transfer(struct nvmet_pciep_epf *nvme_epf,
+ 		goto unmap;
+ 	}
+ 
+-	dma_async_issue_pending(chan);
+-	ret = wait_for_completion_timeout(&dma_done, msecs_to_jiffies(1000));
+-	if (!ret) {
+-		dev_err(dev, "DMA transfer timeout\n");
+-		dmaengine_terminate_sync(chan);
+-		ret = -ETIMEDOUT;
+-		goto unmap;
++	if (dma_sync_wait(chan, cookie) != DMA_COMPLETE) {
++		dev_err(dev, "DMA transfer failed\n");
++		ret = -EIO;
+ 	}
+ 
+-	ret = 0;
++	dmaengine_terminate_sync(chan);
+ 
+ unmap:
+ 	dma_unmap_single(dma_dev, dma_addr, seg->length, dir);
+@@ -1068,7 +1054,6 @@ static int nvmet_pciep_post_iod_cqe(struct nvmet_pciep_iod *iod)
+ 	cqe->command_id = iod->cmd.common.command_id;
+ 	cqe->status = cpu_to_le16((iod->status << 1) | cq->phase);
+ 
+-	/* Post the completion entry */
+ 	dev_dbg(ctrl->dev,
+ 		"CQ[%d]: %s status 0x%x, result 0x%llx, head %d, tail %d, phase %d\n",
+ 		cq->qid, nvmet_pciep_iod_name(iod), iod->status,
+@@ -1101,9 +1086,10 @@ static void nvmet_pciep_complete_iod(struct nvmet_pciep_iod *iod)
+ 	}
+ 
+ 	/* Do not print an error message for AENs */
++	iod->status = le16_to_cpu(iod->cqe.status) >> 1;
+ 	if (iod->status && iod->cmd.common.opcode != nvme_admin_async_event)
+ 		dev_err(iod->ctrl->dev,
+-			"CQ[%d]: Command %s (0x%x) failed, status 0x%0x\n",
++			"CQ[%d]: Command %s (0x%x) status 0x%0x\n",
+ 			iod->sq->qid, nvmet_pciep_iod_name(iod),
+ 			iod->cmd.common.opcode, iod->status);
+ 
+@@ -1113,8 +1099,9 @@ static void nvmet_pciep_complete_iod(struct nvmet_pciep_iod *iod)
+ 	 */
+ 	spin_lock_irqsave(&cq->lock, flags);
+ 	list_add_tail(&iod->link, &cq->list);
+-	queue_delayed_work(ctrl->wq, &cq->work, 0);
+ 	spin_unlock_irqrestore(&cq->lock, flags);
++
++	queue_delayed_work(ctrl->wq, &cq->work, 0);
+ }
+ 
+ static void nvmet_pciep_drain_queue(struct nvmet_pciep_queue *queue)
+@@ -1180,10 +1167,7 @@ static void nvmet_pciep_queue_response(struct nvmet_req *req)
+ 
+ 	iod->status = le16_to_cpu(req->cqe->status) >> 1;
+ 
+-	/*
+-	 * If we have no data to transfer, directly complete the command.
+-	 * This includes AENs.
+-	 */
++	/* If we have no data to transfer, directly complete the command. */
+ 	if (!iod->data_length || iod->dma_dir != DMA_TO_DEVICE) {
+ 		nvmet_pciep_complete_iod(iod);
+ 		return;
+@@ -1285,7 +1269,7 @@ static u16 nvmet_pciep_create_sq(struct nvmet_ctrl *tctrl, u16 sqid, u16 flags,
+ 	if (status != NVME_SC_SUCCESS)
+ 		goto out_clear_bit;
+ 
+-	sq->iod_wq = alloc_workqueue("sq%d_wq", WQ_HIGHPRI | WQ_UNBOUND,
++	sq->iod_wq = alloc_workqueue("sq%d_wq", WQ_UNBOUND,
+ 				min_t(int, sq->depth, WQ_MAX_ACTIVE), sqid);
+ 	if (!sq->iod_wq) {
+ 		dev_err(ctrl->dev, "Create SQ %d work queue failed\n", sqid);
+@@ -1696,15 +1680,41 @@ static void nvmet_pciep_poll_cc_work(struct work_struct *work)
+ 	schedule_delayed_work(&ctrl->poll_cc, NVMET_PCIEP_CC_POLL_INTERVAL);
+ }
+ 
+-static void nvmet_pciep_exec_iod(struct nvmet_pciep_iod *iod)
++static void nvmet_pciep_exec_iod_work(struct work_struct *work)
+ {
++	struct nvmet_pciep_iod *iod =
++		container_of(work, struct nvmet_pciep_iod, work);
+ 	struct nvmet_req *req = &iod->req;
+ 	int ret;
+ 
++	/*
++	 * The command may or may not be using SGLs. However, the target
++	 * core mandates SGL use (as per NVMe fabrics specification), which we
++	 * set here, after remembering the command original flags that we will
++	 * use to parse the command using either PRPs or SGLs.
++	 */
++	iod->cmd_flags = iod->cmd.common.flags;
++	iod->cmd.common.flags &= ~(NVME_CMD_SGL_ALL);
++	iod->cmd.common.flags |= NVME_CMD_SGL_METABUF;
++
++	if (!nvmet_req_init(req, &iod->cq->nvme_cq, &iod->sq->nvme_sq,
++			    &nvmet_pciep_fabrics_ops))
++		goto complete;
++
++	iod->data_length = nvmet_req_transfer_len(req);
+ 	if (iod->data_length) {
++		/*
++		 * Get the data DMA transfer direction. Here "device" means the
++		 * PCI root-complex host.
++		 */
++		if (nvme_is_write(&iod->cmd))
++			iod->dma_dir = DMA_FROM_DEVICE;
++		else
++			iod->dma_dir = DMA_TO_DEVICE;
++
+ 		/*
+ 		 * Setup the command data buffer and get the command data from
+-		 * the host if needed
++		 * the host if needed.
+ 		 */
+ 		ret = nvmet_pciep_alloc_iod_data_buf(iod);
+ 		if (!ret && iod->dma_dir == DMA_FROM_DEVICE)
+@@ -1718,9 +1728,9 @@ static void nvmet_pciep_exec_iod(struct nvmet_pciep_iod *iod)
+ 	req->execute(req);
+ 
+ 	/*
+-	 * If we do not have data to transfer once the command completes,
+-	 * nvmet_pciep_queue_response() will complete the command directly.
+-	 * No need to wait for the completion in this case.
++	 * If we do not have data to transfer after the command execution
++	 * finishes, nvmet_pciep_queue_response() will complete the command
++	 * directly. No need to wait for the completion in this case.
+ 	 */
+ 	if (!iod->data_length || iod->dma_dir != DMA_TO_DEVICE)
+ 		return;
+@@ -1736,92 +1746,6 @@ static void nvmet_pciep_exec_iod(struct nvmet_pciep_iod *iod)
+ 	nvmet_pciep_complete_iod(iod);
+ }
+ 
+-static void nvmet_pciep_exec_iod_work(struct work_struct *work)
+-{
+-	struct nvmet_pciep_iod *iod =
+-		container_of(work, struct nvmet_pciep_iod, work);
+-
+-	nvmet_pciep_exec_iod(iod);
+-}
+-
+-static bool nvmet_pciep_init_iod(struct nvmet_pciep_iod *iod)
+-{
+-	struct nvmet_req *req = &iod->req;
+-
+-	/*
+-	 * The command may or may not be using SGLs. However, the target
+-	 * controller mandates SGL use, which we set here, after remembering
+-	 * the command original flags.
+-	 */
+-	iod->cmd_flags = iod->cmd.common.flags;
+-	iod->cmd.common.flags &= ~(NVME_CMD_SGL_ALL);
+-	iod->cmd.common.flags |= NVME_CMD_SGL_METABUF;
+-
+-	if (!nvmet_req_init(req, &iod->cq->nvme_cq, &iod->sq->nvme_sq,
+-			    &nvmet_pciep_fabrics_ops)) {
+-		iod->status = le16_to_cpu(req->cqe->status) >> 1;
+-		return false;
+-	}
+-
+-	iod->data_length = nvmet_req_transfer_len(req);
+-	if (iod->data_length) {
+-		/*
+-		 * Get the data DMA transfer direction. Here "device" is the
+-		 * PCI RC host.
+-		 */
+-		if (nvme_is_write(&iod->cmd))
+-			iod->dma_dir = DMA_FROM_DEVICE;
+-		else
+-			iod->dma_dir = DMA_TO_DEVICE;
+-	}
+-
+-	return true;
+-}
+-
+-static void nvmet_pciep_process_iod(struct nvmet_pciep_iod *iod)
+-{
+-	struct nvmet_pciep_queue *sq = iod->sq;
+-
+-	dev_dbg(iod->ctrl->dev, "SQ[%u]: %s command %s (0x%02x)\n",
+-		sq->qid, sq->qid ? "Admin" : "IO",
+-		nvmet_pciep_iod_name(iod), iod->cmd.common.opcode);
+-
+-	if (!nvmet_pciep_init_iod(iod)) {
+-		nvmet_pciep_complete_iod(iod);
+-		return;
+-	}
+-
+-	/*
+-	 * If this is an admin command or if we do not have any remaining
+-	 * command to process, execute it directly in this context.
+-	 */
+-	if (!sq->qid || list_empty(&sq->list))
+-		nvmet_pciep_exec_iod(iod);
+-	else
+-		queue_work(sq->iod_wq, &iod->work);
+-}
+-
+-static void nvmet_pciep_process_iods(struct nvmet_pciep_ctrl *ctrl,
+-				     struct nvmet_pciep_queue *sq)
+-{
+-	struct nvmet_pciep_iod *iod;
+-
+-	while (!list_empty(&sq->list)) {
+-
+-		iod = list_first_entry(&sq->list, struct nvmet_pciep_iod, link);
+-		list_del_init(&iod->link);
+-
+-		if (!test_bit(NVMET_PCIEP_Q_LIVE, &sq->flags) ||
+-		    !ctrl->link_up) {
+-			iod->status = NVME_SC_QID_INVALID | NVME_STATUS_DNR;
+-			nvmet_pciep_complete_iod(iod);
+-			continue;
+-		}
+-
+-		nvmet_pciep_process_iod(iod);
+-	}
+-}
+-
+ static bool nvmet_pciep_fetch_iods(struct nvmet_pciep_ctrl *ctrl,
+ 				   struct nvmet_pciep_queue *sq)
+ {
+@@ -1869,6 +1793,34 @@ static bool nvmet_pciep_fetch_iods(struct nvmet_pciep_ctrl *ctrl,
+ 	return !list_empty(&sq->list);
+ }
+ 
++static void nvmet_pciep_process_iods(struct nvmet_pciep_ctrl *ctrl,
++				     struct nvmet_pciep_queue *sq)
++{
++	struct nvmet_pciep_iod *iod;
++
++	while (!list_empty(&sq->list)) {
++		iod = list_first_entry(&sq->list, struct nvmet_pciep_iod, link);
++		list_del_init(&iod->link);
++
++		if (!ctrl->link_up) {
++			nvmet_pciep_free_iod(iod);
++			continue;
++		}
++
++		if (!test_bit(NVMET_PCIEP_Q_LIVE, &sq->flags)) {
++			iod->status = NVME_SC_QID_INVALID | NVME_STATUS_DNR;
++			nvmet_pciep_complete_iod(iod);
++			continue;
++		}
++
++		dev_dbg(iod->ctrl->dev, "SQ[%u]: command %s (0x%02x)\n",
++			iod->sq->qid, nvmet_pciep_iod_name(iod),
++			iod->cmd.common.opcode);
++
++		queue_work(sq->iod_wq, &iod->work);
++	}
++}
++
+ static void nvmet_pciep_sq_work(struct work_struct *work)
+ {
+ 	struct nvmet_pciep_queue *sq =
+-- 
+2.47.0
+

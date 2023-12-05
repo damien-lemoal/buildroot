@@ -1,0 +1,56 @@
+From 29847507b7ec0e83d5a047707f222420c23da5e7 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Fri, 29 Nov 2024 22:36:54 +0900
+Subject: [PATCH 37/40] nvmet: Implement set host identifier feature
+
+Implement handling of the NVME_FEAT_HOST_ID feature for the
+nvme_set_features command. This implementation is for now effective only
+for PCI target controllers. For other controller types,
+NVME_SC_CMD_SEQ_ERROR is returned as before. For PCI controllers, only
+support 128 bits host identifiers.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/target/admin-cmd.c | 19 ++++++++++++++++++-
+ 1 file changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/nvme/target/admin-cmd.c b/drivers/nvme/target/admin-cmd.c
+index 15739b3a2f91..20fcddffff09 100644
+--- a/drivers/nvme/target/admin-cmd.c
++++ b/drivers/nvme/target/admin-cmd.c
+@@ -977,6 +977,23 @@ u16 nvmet_set_feat_async_event(struct nvmet_req *req, u32 mask)
+ 	return 0;
+ }
+ 
++static u16 nvmet_set_feat_host_id(struct nvmet_req *req)
++{
++	struct nvmet_ctrl *ctrl = req->sq->ctrl;
++
++	if (!nvmet_is_pci_ctrl(ctrl))
++		return NVME_SC_CMD_SEQ_ERROR | NVME_STATUS_DNR;
++
++	/* need 128-bit host identifier flag */
++	if (!(req->cmd->common.cdw11 & cpu_to_le32(1 << 0))) {
++		req->error_loc = offsetof(struct nvme_common_command, cdw11);
++		return NVME_SC_INVALID_FIELD | NVME_STATUS_DNR;
++	}
++
++	return nvmet_copy_from_sgl(req, 0, &req->sq->ctrl->hostid,
++				   sizeof(req->sq->ctrl->hostid));
++}
++
+ void nvmet_execute_set_features(struct nvmet_req *req)
+ {
+ 	struct nvmet_subsys *subsys = nvmet_req_subsys(req);
+@@ -1007,7 +1024,7 @@ void nvmet_execute_set_features(struct nvmet_req *req)
+ 		status = nvmet_set_feat_async_event(req, NVMET_AEN_CFG_ALL);
+ 		break;
+ 	case NVME_FEAT_HOST_ID:
+-		status = NVME_SC_CMD_SEQ_ERROR | NVME_STATUS_DNR;
++		status = nvmet_set_feat_host_id(req);
+ 		break;
+ 	case NVME_FEAT_WRITE_PROTECT:
+ 		status = nvmet_set_feat_write_protect(req);
+-- 
+2.47.0
+

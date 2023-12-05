@@ -1,0 +1,45 @@
+From f6073d75e7aca51ba9068e20989830412fc31dc7 Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <cassel@kernel.org>
+Date: Thu, 17 Oct 2024 15:20:54 +0200
+Subject: [PATCH 07/40] PCI: dwc: ep: Fix dw_pcie_ep_align_addr()
+
+ep->page_size is defined by the EPC drivers.
+Some drivers e.g. pci-imx6.c defines this to 4K for imx95.
+
+dw_pcie_ep_init() will call pci_epc_mem_init() with ep->page_size.
+pci_epc_mem_init() will call pci_epc_multi_mem_init().
+
+pci_epc_multi_mem_init() will initialize mem->window.page_size.
+If the provided page_size (ep->page_size) is smaller than PAGE_SIZE,
+it will initialize mem->window.page_size to PAGE_SIZE rather than
+ep->page_size.
+
+Thus, mem->window.page_size can be larger than ep->page_size, e.g.
+for a platform built with PAGE_SIZE == 64K, while using a EPC driver
+that defines ep->page_size to 4k.
+
+Therefore, modify dw_pcie_ep_align_addr() to use
+epc->mem->window.page_size rather than ep->page_size.
+
+Signed-off-by: Niklas Cassel <cassel@kernel.org>
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/dwc/pcie-designware-ep.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-designware-ep.c b/drivers/pci/controller/dwc/pcie-designware-ep.c
+index ad602b213ec4..194cc3f7d63a 100644
+--- a/drivers/pci/controller/dwc/pcie-designware-ep.c
++++ b/drivers/pci/controller/dwc/pcie-designware-ep.c
+@@ -276,7 +276,7 @@ static phys_addr_t dw_pcie_ep_align_addr(struct pci_epc *epc,
+ 	phys_addr_t mask = pci->region_align - 1;
+ 	size_t ofst = pci_addr & mask;
+ 
+-	*pci_size = ALIGN(ofst + *pci_size, ep->page_size);
++	*pci_size = ALIGN(ofst + *pci_size, epc->mem->window.page_size);
+ 	*offset = ofst;
+ 
+ 	return pci_addr & ~mask;
+-- 
+2.47.0
+

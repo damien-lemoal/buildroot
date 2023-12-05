@@ -1,0 +1,119 @@
+From bf0d1f1b3ebd02f86baf394c5ae57b45c90fb7e1 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Thu, 21 Nov 2024 22:02:27 +0900
+Subject: [PATCH 28/40] nvme: Move opcode string helper functions declarations
+
+Move the declaration of all helper functions converting NVMe command
+opcodes and status codes into strings from drivers/nvme/host/nvme.h
+into include/linux/nvme.h, together with the commands definitions.
+This allows NVMe target drivers to call these functions without having
+to include a host header file.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/host/nvme.h | 39 ---------------------------------------
+ include/linux/nvme.h     | 40 ++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 40 insertions(+), 39 deletions(-)
+
+diff --git a/drivers/nvme/host/nvme.h b/drivers/nvme/host/nvme.h
+index 093cb423f536..79c52421d257 100644
+--- a/drivers/nvme/host/nvme.h
++++ b/drivers/nvme/host/nvme.h
+@@ -1173,43 +1173,4 @@ static inline bool nvme_multi_css(struct nvme_ctrl *ctrl)
+ 	return (ctrl->ctrl_config & NVME_CC_CSS_MASK) == NVME_CC_CSS_CSI;
+ }
+ 
+-#ifdef CONFIG_NVME_VERBOSE_ERRORS
+-const char *nvme_get_error_status_str(u16 status);
+-const char *nvme_get_opcode_str(u8 opcode);
+-const char *nvme_get_admin_opcode_str(u8 opcode);
+-const char *nvme_get_fabrics_opcode_str(u8 opcode);
+-#else /* CONFIG_NVME_VERBOSE_ERRORS */
+-static inline const char *nvme_get_error_status_str(u16 status)
+-{
+-	return "I/O Error";
+-}
+-static inline const char *nvme_get_opcode_str(u8 opcode)
+-{
+-	return "I/O Cmd";
+-}
+-static inline const char *nvme_get_admin_opcode_str(u8 opcode)
+-{
+-	return "Admin Cmd";
+-}
+-
+-static inline const char *nvme_get_fabrics_opcode_str(u8 opcode)
+-{
+-	return "Fabrics Cmd";
+-}
+-#endif /* CONFIG_NVME_VERBOSE_ERRORS */
+-
+-static inline const char *nvme_opcode_str(int qid, u8 opcode)
+-{
+-	return qid ? nvme_get_opcode_str(opcode) :
+-		nvme_get_admin_opcode_str(opcode);
+-}
+-
+-static inline const char *nvme_fabrics_opcode_str(
+-		int qid, const struct nvme_command *cmd)
+-{
+-	if (nvme_is_fabrics(cmd))
+-		return nvme_get_fabrics_opcode_str(cmd->fabrics.fctype);
+-
+-	return nvme_opcode_str(qid, cmd->common.opcode);
+-}
+ #endif /* _NVME_H */
+diff --git a/include/linux/nvme.h b/include/linux/nvme.h
+index b58d9405d65e..c8333a1f2e9a 100644
+--- a/include/linux/nvme.h
++++ b/include/linux/nvme.h
+@@ -1830,6 +1830,46 @@ static inline bool nvme_is_fabrics(const struct nvme_command *cmd)
+ 	return cmd->common.opcode == nvme_fabrics_command;
+ }
+ 
++#ifdef CONFIG_NVME_VERBOSE_ERRORS
++const char *nvme_get_error_status_str(u16 status);
++const char *nvme_get_opcode_str(u8 opcode);
++const char *nvme_get_admin_opcode_str(u8 opcode);
++const char *nvme_get_fabrics_opcode_str(u8 opcode);
++#else /* CONFIG_NVME_VERBOSE_ERRORS */
++static inline const char *nvme_get_error_status_str(u16 status)
++{
++	return "I/O Error";
++}
++static inline const char *nvme_get_opcode_str(u8 opcode)
++{
++	return "I/O Cmd";
++}
++static inline const char *nvme_get_admin_opcode_str(u8 opcode)
++{
++	return "Admin Cmd";
++}
++
++static inline const char *nvme_get_fabrics_opcode_str(u8 opcode)
++{
++	return "Fabrics Cmd";
++}
++#endif /* CONFIG_NVME_VERBOSE_ERRORS */
++
++static inline const char *nvme_opcode_str(int qid, u8 opcode)
++{
++	return qid ? nvme_get_opcode_str(opcode) :
++		nvme_get_admin_opcode_str(opcode);
++}
++
++static inline const char *nvme_fabrics_opcode_str(
++		int qid, const struct nvme_command *cmd)
++{
++	if (nvme_is_fabrics(cmd))
++		return nvme_get_fabrics_opcode_str(cmd->fabrics.fctype);
++
++	return nvme_opcode_str(qid, cmd->common.opcode);
++}
++
+ struct nvme_error_slot {
+ 	__le64		error_count;
+ 	__le16		sqid;
+-- 
+2.47.0
+
