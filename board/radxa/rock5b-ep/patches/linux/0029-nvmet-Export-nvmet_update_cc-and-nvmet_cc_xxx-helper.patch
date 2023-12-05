@@ -1,0 +1,122 @@
+From 848e695e6546e5891634b65efab4a8e074089772 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Sat, 26 Oct 2024 20:14:39 +0900
+Subject: [PATCH 29/37] nvmet: Export nvmet_update_cc() and nvmet_cc_xxx()
+ helpers
+
+Make the function nvmet_update_cc() available to target drivers by
+exporting it. To also facilitate the manipulation of the cc register
+bits, move the inline helper functions nvmet_cc_en(), nvmet_cc_css(),
+nvmet_cc_mps(), nvmet_cc_ams(), nvmet_cc_shn(), nvmet_cc_iosqes(), and
+nvmet_cc_iocqes() from core.c to nvmet.h so that these functions can be
+reused in target controller drivers.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/target/core.c  | 36 +-----------------------------------
+ drivers/nvme/target/nvmet.h | 35 +++++++++++++++++++++++++++++++++++
+ 2 files changed, 36 insertions(+), 35 deletions(-)
+
+diff --git a/drivers/nvme/target/core.c b/drivers/nvme/target/core.c
+index ed2424f8a396..850a3712880e 100644
+--- a/drivers/nvme/target/core.c
++++ b/drivers/nvme/target/core.c
+@@ -1127,41 +1127,6 @@ void nvmet_req_free_sgls(struct nvmet_req *req)
+ }
+ EXPORT_SYMBOL_GPL(nvmet_req_free_sgls);
+ 
+-static inline bool nvmet_cc_en(u32 cc)
+-{
+-	return (cc >> NVME_CC_EN_SHIFT) & 0x1;
+-}
+-
+-static inline u8 nvmet_cc_css(u32 cc)
+-{
+-	return (cc >> NVME_CC_CSS_SHIFT) & 0x7;
+-}
+-
+-static inline u8 nvmet_cc_mps(u32 cc)
+-{
+-	return (cc >> NVME_CC_MPS_SHIFT) & 0xf;
+-}
+-
+-static inline u8 nvmet_cc_ams(u32 cc)
+-{
+-	return (cc >> NVME_CC_AMS_SHIFT) & 0x7;
+-}
+-
+-static inline u8 nvmet_cc_shn(u32 cc)
+-{
+-	return (cc >> NVME_CC_SHN_SHIFT) & 0x3;
+-}
+-
+-static inline u8 nvmet_cc_iosqes(u32 cc)
+-{
+-	return (cc >> NVME_CC_IOSQES_SHIFT) & 0xf;
+-}
+-
+-static inline u8 nvmet_cc_iocqes(u32 cc)
+-{
+-	return (cc >> NVME_CC_IOCQES_SHIFT) & 0xf;
+-}
+-
+ static inline bool nvmet_css_supported(u8 cc_css)
+ {
+ 	switch (cc_css << NVME_CC_CSS_SHIFT) {
+@@ -1238,6 +1203,7 @@ void nvmet_update_cc(struct nvmet_ctrl *ctrl, u32 new)
+ 		ctrl->csts &= ~NVME_CSTS_SHST_CMPLT;
+ 	mutex_unlock(&ctrl->lock);
+ }
++EXPORT_SYMBOL_GPL(nvmet_update_cc);
+ 
+ static void nvmet_init_cap(struct nvmet_ctrl *ctrl)
+ {
+diff --git a/drivers/nvme/target/nvmet.h b/drivers/nvme/target/nvmet.h
+index 516f1c7f4563..2176a5cb8226 100644
+--- a/drivers/nvme/target/nvmet.h
++++ b/drivers/nvme/target/nvmet.h
+@@ -683,6 +683,41 @@ void nvmet_passthrough_override_cap(struct nvmet_ctrl *ctrl);
+ u16 errno_to_nvme_status(struct nvmet_req *req, int errno);
+ u16 nvmet_report_invalid_opcode(struct nvmet_req *req);
+ 
++static inline bool nvmet_cc_en(u32 cc)
++{
++	return (cc >> NVME_CC_EN_SHIFT) & 0x1;
++}
++
++static inline u8 nvmet_cc_css(u32 cc)
++{
++	return (cc >> NVME_CC_CSS_SHIFT) & 0x7;
++}
++
++static inline u8 nvmet_cc_mps(u32 cc)
++{
++	return (cc >> NVME_CC_MPS_SHIFT) & 0xf;
++}
++
++static inline u8 nvmet_cc_ams(u32 cc)
++{
++	return (cc >> NVME_CC_AMS_SHIFT) & 0x7;
++}
++
++static inline u8 nvmet_cc_shn(u32 cc)
++{
++	return (cc >> NVME_CC_SHN_SHIFT) & 0x3;
++}
++
++static inline u8 nvmet_cc_iosqes(u32 cc)
++{
++	return (cc >> NVME_CC_IOSQES_SHIFT) & 0xf;
++}
++
++static inline u8 nvmet_cc_iocqes(u32 cc)
++{
++	return (cc >> NVME_CC_IOCQES_SHIFT) & 0xf;
++}
++
+ /* Convert a 32-bit number to a 16-bit 0's based number */
+ static inline __le16 to0based(u32 a)
+ {
+-- 
+2.47.0
+

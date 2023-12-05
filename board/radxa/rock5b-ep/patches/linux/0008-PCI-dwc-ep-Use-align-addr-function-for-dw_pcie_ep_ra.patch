@@ -1,0 +1,78 @@
+From 6fe332a5c05f16a339a74e5c55d3fbfbeb0c818d Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <cassel@kernel.org>
+Date: Thu, 17 Oct 2024 15:20:55 +0200
+Subject: [PATCH 08/37] PCI: dwc: ep: Use align addr function for
+ dw_pcie_ep_raise_{msi,msix}_irq()
+
+Use the dw_pcie_ep_align_addr() function to calculate the alignment in
+dw_pcie_ep_raise_{msi,msix}_irq() instead of open coding the same.
+
+Signed-off-by: Niklas Cassel <cassel@kernel.org>
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ .../pci/controller/dwc/pcie-designware-ep.c    | 18 +++++++++---------
+ 1 file changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-designware-ep.c b/drivers/pci/controller/dwc/pcie-designware-ep.c
+index 194cc3f7d63a..1b5fcad1fcd8 100644
+--- a/drivers/pci/controller/dwc/pcie-designware-ep.c
++++ b/drivers/pci/controller/dwc/pcie-designware-ep.c
+@@ -503,7 +503,8 @@ int dw_pcie_ep_raise_msi_irq(struct dw_pcie_ep *ep, u8 func_no,
+ 	u32 msg_addr_lower, msg_addr_upper, reg;
+ 	struct dw_pcie_ep_func *ep_func;
+ 	struct pci_epc *epc = ep->epc;
+-	unsigned int aligned_offset;
++	size_t msi_mem_size = epc->mem->window.page_size;
++	size_t offset;
+ 	u16 msg_ctrl, msg_data;
+ 	bool has_upper;
+ 	u64 msg_addr;
+@@ -531,14 +532,13 @@ int dw_pcie_ep_raise_msi_irq(struct dw_pcie_ep *ep, u8 func_no,
+ 	}
+ 	msg_addr = ((u64)msg_addr_upper) << 32 | msg_addr_lower;
+ 
+-	aligned_offset = msg_addr & (epc->mem->window.page_size - 1);
+-	msg_addr = ALIGN_DOWN(msg_addr, epc->mem->window.page_size);
++	msg_addr = dw_pcie_ep_align_addr(epc, msg_addr, &msi_mem_size, &offset);
+ 	ret = dw_pcie_ep_map_addr(epc, func_no, 0, ep->msi_mem_phys, msg_addr,
+-				  epc->mem->window.page_size);
++				  msi_mem_size);
+ 	if (ret)
+ 		return ret;
+ 
+-	writel(msg_data | (interrupt_num - 1), ep->msi_mem + aligned_offset);
++	writel(msg_data | (interrupt_num - 1), ep->msi_mem + offset);
+ 
+ 	dw_pcie_ep_unmap_addr(epc, func_no, 0, ep->msi_mem_phys);
+ 
+@@ -589,8 +589,9 @@ int dw_pcie_ep_raise_msix_irq(struct dw_pcie_ep *ep, u8 func_no,
+ 	struct pci_epf_msix_tbl *msix_tbl;
+ 	struct dw_pcie_ep_func *ep_func;
+ 	struct pci_epc *epc = ep->epc;
++	size_t msi_mem_size = epc->mem->window.page_size;
++	size_t offset;
+ 	u32 reg, msg_data, vec_ctrl;
+-	unsigned int aligned_offset;
+ 	u32 tbl_offset;
+ 	u64 msg_addr;
+ 	int ret;
+@@ -615,14 +616,13 @@ int dw_pcie_ep_raise_msix_irq(struct dw_pcie_ep *ep, u8 func_no,
+ 		return -EPERM;
+ 	}
+ 
+-	aligned_offset = msg_addr & (epc->mem->window.page_size - 1);
+-	msg_addr = ALIGN_DOWN(msg_addr, epc->mem->window.page_size);
++	msg_addr = dw_pcie_ep_align_addr(epc, msg_addr, &msi_mem_size, &offset);
+ 	ret = dw_pcie_ep_map_addr(epc, func_no, 0, ep->msi_mem_phys, msg_addr,
+ 				  epc->mem->window.page_size);
+ 	if (ret)
+ 		return ret;
+ 
+-	writel(msg_data, ep->msi_mem + aligned_offset);
++	writel(msg_data, ep->msi_mem + offset);
+ 
+ 	dw_pcie_ep_unmap_addr(epc, func_no, 0, ep->msi_mem_phys);
+ 
+-- 
+2.47.0
+
