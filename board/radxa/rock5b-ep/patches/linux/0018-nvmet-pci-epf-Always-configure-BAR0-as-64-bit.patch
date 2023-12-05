@@ -1,0 +1,52 @@
+From 8d20875e4430fae743d2c4198be06f7d7c3bc23e Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <cassel@kernel.org>
+Date: Fri, 14 Mar 2025 10:58:58 +0100
+Subject: [PATCH 18/19] nvmet: pci-epf: Always configure BAR0 as 64-bit
+
+NVMe PCIe Transport Specification 1.1, section 2.1.10, claims that the
+BAR0 type is Implementation Specific.
+
+However, in NVMe 1.1, the type is required to be 64-bit.
+
+Thus, to make our PCI EPF work on as many host systems as possible,
+always configure the BAR0 type to be 64-bit.
+
+In the rare case that the underlying PCI EPC does not support configuring
+BAR0 as 64-bit, the call to pci_epc_set_bar() will fail, and we will
+return a failure back to the user.
+
+This should not be a problem, as most PCI EPCs support configuring a BAR
+as 64-bit (and those EPCs with .only_64bit set to true in epc_features
+only support configuring the BAR as 64-bit).
+
+Signed-off-by: Niklas Cassel <cassel@kernel.org>
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/target/pci-epf.c | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/nvme/target/pci-epf.c b/drivers/nvme/target/pci-epf.c
+index f56994a78066..9c97f39dd04e 100644
+--- a/drivers/nvme/target/pci-epf.c
++++ b/drivers/nvme/target/pci-epf.c
+@@ -2116,8 +2116,15 @@ static int nvmet_pci_epf_configure_bar(struct nvmet_pci_epf *nvme_epf)
+ 		return -ENODEV;
+ 	}
+ 
+-	if (epc_features->bar[BAR_0].only_64bit)
+-		epf->bar[BAR_0].flags |= PCI_BASE_ADDRESS_MEM_TYPE_64;
++	/*
++	 * While NVMe PCIe Transport Specification 1.1, section 2.1.10, claims
++	 * that the BAR0 type is Implementation Specific, in NVMe 1.1, the type
++	 * is required to be 64-bit. Thus, for interoperability, always set the
++	 * type to 64-bit. In the rare case that the PCI EPC does not support
++	 * configuring BAR0 as 64-bit, the call to pci_epc_set_bar() will fail,
++	 * and we will return failure back to the user.
++	 */
++	epf->bar[BAR_0].flags |= PCI_BASE_ADDRESS_MEM_TYPE_64;
+ 
+ 	/*
+ 	 * Calculate the size of the register bar: NVMe registers first with
+-- 
+2.48.1
+

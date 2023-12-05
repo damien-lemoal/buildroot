@@ -1,0 +1,317 @@
+From b56d043f6506a385bbaa88ebef9d8f43258e96c9 Mon Sep 17 00:00:00 2001
+From: Shradha Todi <shradha.t@samsung.com>
+Date: Tue, 21 Jan 2025 16:44:20 +0530
+Subject: [PATCH 12/19] PCI: dwc: Add debugfs based error injection support
+
+Add support to provide error injection interface to userspace. This set
+of debug registers are part of the RASDES feature present in DesignWare
+PCIe controllers.
+
+Signed-off-by: Shradha Todi <shradha.t@samsung.com>
+---
+ Documentation/ABI/testing/debugfs-dwc-pcie    |  70 ++++++++
+ .../controller/dwc/pcie-designware-debugfs.c  | 165 +++++++++++++++++-
+ 2 files changed, 233 insertions(+), 2 deletions(-)
+
+diff --git a/Documentation/ABI/testing/debugfs-dwc-pcie b/Documentation/ABI/testing/debugfs-dwc-pcie
+index e7920ac82e38..cff205ab2678 100644
+--- a/Documentation/ABI/testing/debugfs-dwc-pcie
++++ b/Documentation/ABI/testing/debugfs-dwc-pcie
+@@ -11,3 +11,73 @@ Contact:	Shradha Todi <shradha.t@samsung.com>
+ Description:	(RW) Write the lane number to be checked as valid or invalid. Read
+ 		will return the status of PIPE RXVALID signal of the selected lane.
+ 		The default selected lane is Lane0.
++
++What:		/sys/kernel/debug/dwc_pcie_<dev>/rasdes_err_inj/<error>
++Date:		January 2025
++Contact:	Shradha Todi <shradha.t@samsung.com>
++Description:	rasdes_err_inj is the directory which can be used to inject errors in the
++		system. The possible errors that can be injected are:
++
++		1) TLP LCRC error injection TX Path - tx_lcrc
++		2) 16b CRC error injection of ACK/NAK DLLP - b16_crc_dllp
++		3) 16b CRC error injection of Update-FC DLLP - b16_crc_upd_fc
++		4) TLP ECRC error injection TX Path - tx_ecrc
++		5) TLP's FCRC error injection TX Path - fcrc_tlp
++		6) Parity error of TSOS - parity_tsos
++		7) Parity error on SKPOS - parity_skpos
++		8) LCRC error injection RX Path - rx_lcrc
++		9) ECRC error injection RX Path - rx_ecrc
++		10) TLPs SEQ# error - tlp_err_seq
++		11) DLLPS ACK/NAK SEQ# error - ack_nak_dllp_seq
++		12) ACK/NAK DLLPs transmission block - ack_nak_dllp
++		13) UpdateFC DLLPs transmission block - upd_fc_dllp
++		14) Always transmission for NAK DLLP - nak_dllp
++		15) Invert SYNC header - inv_sync_hdr_sym
++		16) COM/PAD TS1 order set - com_pad_ts1
++		17) COM/PAD TS2 order set - com_pad_ts2
++		18) COM/FTS FTS order set - com_fts
++		19) COM/IDL E-idle order set - com_idl
++		20) END/EDB symbol - end_edb
++		21) STP/SDP symbol - stp_sdp
++		22) COM/SKP SKP order set - com_skp
++		23) Posted TLP Header credit value control - posted_tlp_hdr
++		24) Non-Posted TLP Header credit value control - non_post_tlp_hdr
++		25) Completion TLP Header credit value control - cmpl_tlp_hdr
++		26) Posted TLP Data credit value control - posted_tlp_data
++		27) Non-Posted TLP Data credit value control - non_post_tlp_data
++		28) Completion TLP Data credit value control - cmpl_tlp_data
++		29) Generates duplicate TLPs - duplicate_dllp
++		30) Generates Nullified TLPs - nullified_tlp
++
++		Each of the possible errors are WO attributes. Write to the attribute will
++		prepare controller to inject the respective error in the next transmission
++		of data. Parameter required to write will change in the following ways:
++
++		i) Errors 9) - 10) are sequence errors. The write command for these will be
++
++			echo <count> <diff> > /sys/kernel/debug/dwc_pcie_<dev>/rasdes_err_inj/<error>
++
++			<count>
++				Number of errors to be injected
++			<diff>
++				The difference to add or subtract from natural sequence number to
++				generate sequence error. Range (-4095 : 4095)
++
++		ii) Errors 23) - 28) are credit value error insertions. Write command:
++
++			echo <count> <diff> <vc> > /sys/kernel/debug/dwc_pcie_<dev>/rasdes_err_inj/<error>
++
++			<count>
++				Number of errors to be injected
++			<diff>
++				The difference to add or subtract from UpdateFC credit value.
++				Range (-4095 : 4095)
++			<vc>
++				Target VC number
++
++		iii) All other errors. Write command:
++
++			echo <count> > /sys/kernel/debug/dwc_pcie_<dev>/rasdes_err_inj/<error>
++
++			<count>
++				Number of errors to be injected
+diff --git a/drivers/pci/controller/dwc/pcie-designware-debugfs.c b/drivers/pci/controller/dwc/pcie-designware-debugfs.c
+index 907864c35ef3..801d51d8786f 100644
+--- a/drivers/pci/controller/dwc/pcie-designware-debugfs.c
++++ b/drivers/pci/controller/dwc/pcie-designware-debugfs.c
+@@ -17,6 +17,20 @@
+ #define PIPE_DETECT_LANE		BIT(17)
+ #define LANE_SELECT			GENMASK(3, 0)
+ 
++#define ERR_INJ0_OFF			0x34
++#define EINJ_VAL_DIFF			GENMASK(28, 16)
++#define EINJ_VC_NUM			GENMASK(14, 12)
++#define EINJ_TYPE_SHIFT			8
++#define EINJ0_TYPE			GENMASK(11, 8)
++#define EINJ1_TYPE			BIT(8)
++#define EINJ2_TYPE			GENMASK(9, 8)
++#define EINJ3_TYPE			GENMASK(10, 8)
++#define EINJ4_TYPE			GENMASK(10, 8)
++#define EINJ5_TYPE			BIT(8)
++#define EINJ_COUNT			GENMASK(7, 0)
++
++#define ERR_INJ_ENABLE_REG		0x30
++
+ #define DWC_DEBUGFS_BUF_MAX		128
+ 
+ struct dwc_pcie_vendor_id {
+@@ -45,6 +59,72 @@ struct dwc_pcie_rasdes_info {
+ 	struct dentry *rasdes_dir;
+ };
+ 
++/**
++ * struct dwc_pcie_rasdes_priv - Stores file specific private data information
++ * @pci: Reference to the dw_pcie structure
++ * @idx: Index to point to specific file related information in array of structs
++ *
++ * All debugfs files will have this struct as its private data.
++ */
++struct dwc_pcie_rasdes_priv {
++	struct dw_pcie *pci;
++	int idx;
++};
++
++/**
++ * struct dwc_pcie_err_inj - Store details about each error injection supported by DWC RASDES
++ * @name: Name of the error that can be injected
++ * @err_inj_group: Group number to which the error belongs to. Value can range from 0 - 5
++ * @err_inj_type: Each group can have multiple types of error
++ */
++struct dwc_pcie_err_inj {
++	const char *name;
++	u32 err_inj_group;
++	u32 err_inj_type;
++};
++
++static const struct dwc_pcie_err_inj err_inj_list[] = {
++	{"tx_lcrc", 0x0, 0x0},
++	{"b16_crc_dllp", 0x0, 0x1},
++	{"b16_crc_upd_fc", 0x0, 0x2},
++	{"tx_ecrc", 0x0, 0x3},
++	{"fcrc_tlp", 0x0, 0x4},
++	{"parity_tsos", 0x0, 0x5},
++	{"parity_skpos", 0x0, 0x6},
++	{"rx_lcrc", 0x0, 0x8},
++	{"rx_ecrc", 0x0, 0xb},
++	{"tlp_err_seq", 0x1, 0x0},
++	{"ack_nak_dllp_seq", 0x1, 0x1},
++	{"ack_nak_dllp", 0x2, 0x0},
++	{"upd_fc_dllp", 0x2, 0x1},
++	{"nak_dllp", 0x2, 0x2},
++	{"inv_sync_hdr_sym", 0x3, 0x0},
++	{"com_pad_ts1", 0x3, 0x1},
++	{"com_pad_ts2", 0x3, 0x2},
++	{"com_fts", 0x3, 0x3},
++	{"com_idl", 0x3, 0x4},
++	{"end_edb", 0x3, 0x5},
++	{"stp_sdp", 0x3, 0x6},
++	{"com_skp", 0x3, 0x7},
++	{"posted_tlp_hdr", 0x4, 0x0},
++	{"non_post_tlp_hdr", 0x4, 0x1},
++	{"cmpl_tlp_hdr", 0x4, 0x2},
++	{"posted_tlp_data", 0x4, 0x4},
++	{"non_post_tlp_data", 0x4, 0x5},
++	{"cmpl_tlp_data", 0x4, 0x6},
++	{"duplicate_dllp", 0x5, 0x0},
++	{"nullified_tlp", 0x5, 0x1},
++};
++
++static const u32 err_inj_type_mask[] = {
++	EINJ0_TYPE,
++	EINJ1_TYPE,
++	EINJ2_TYPE,
++	EINJ3_TYPE,
++	EINJ4_TYPE,
++	EINJ5_TYPE,
++};
++
+ static ssize_t lane_detect_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
+ {
+ 	struct dw_pcie *pci = file->private_data;
+@@ -105,6 +185,63 @@ static ssize_t rx_valid_write(struct file *file, const char __user *buf, size_t
+ 	return lane_detect_write(file, buf, count, ppos);
+ }
+ 
++static ssize_t err_inj_write(struct file *file, const char __user *buf, size_t count, loff_t *ppos)
++{
++	struct dwc_pcie_rasdes_priv *pdata = file->private_data;
++	struct dw_pcie *pci = pdata->pci;
++	struct dwc_pcie_rasdes_info *rinfo = pci->rasdes_info;
++	u32 val, counter, vc_num, err_group, type_mask;
++	int val_diff = 0;
++	char *kern_buf;
++
++	err_group = err_inj_list[pdata->idx].err_inj_group;
++	type_mask = err_inj_type_mask[err_group];
++
++	kern_buf = memdup_user_nul(buf, count);
++	if (IS_ERR(kern_buf))
++		return PTR_ERR(kern_buf);
++
++	if (err_group == 4) {
++		val = sscanf(kern_buf, "%u %d %u", &counter, &val_diff, &vc_num);
++		if ((val != 3) || (val_diff < -4095 || val_diff > 4095)) {
++			kfree(kern_buf);
++			return -EINVAL;
++		}
++	} else if (err_group == 1) {
++		val = sscanf(kern_buf, "%u %d", &counter, &val_diff);
++		if ((val != 2) || (val_diff < -4095 || val_diff > 4095)) {
++			kfree(kern_buf);
++			return -EINVAL;
++		}
++	} else {
++		val = kstrtou32(kern_buf, 0, &counter);
++		if (val) {
++			kfree(kern_buf);
++			return val;
++		}
++	}
++
++	val = dw_pcie_readl_dbi(pci, rinfo->ras_cap_offset + ERR_INJ0_OFF + (0x4 * err_group));
++	val &= ~(type_mask | EINJ_COUNT);
++	val |= ((err_inj_list[pdata->idx].err_inj_type << EINJ_TYPE_SHIFT) & type_mask);
++	val |= FIELD_PREP(EINJ_COUNT, counter);
++
++	if (err_group == 1 || err_group == 4) {
++		val &= ~(EINJ_VAL_DIFF);
++		val |= FIELD_PREP(EINJ_VAL_DIFF, val_diff);
++	}
++	if (err_group == 4) {
++		val &= ~(EINJ_VC_NUM);
++		val |= FIELD_PREP(EINJ_VC_NUM, vc_num);
++	}
++
++	dw_pcie_writel_dbi(pci, rinfo->ras_cap_offset + ERR_INJ0_OFF + (0x4 * err_group), val);
++	dw_pcie_writel_dbi(pci, rinfo->ras_cap_offset + ERR_INJ_ENABLE_REG, (0x1 << err_group));
++
++	kfree(kern_buf);
++	return count;
++}
++
+ #define dwc_debugfs_create(name)			\
+ debugfs_create_file(#name, 0644, rasdes_debug, pci,	\
+ 			&dbg_ ## name ## _fops)
+@@ -119,6 +256,11 @@ static const struct file_operations dbg_ ## name ## _fops = {	\
+ DWC_DEBUGFS_FOPS(lane_detect);
+ DWC_DEBUGFS_FOPS(rx_valid);
+ 
++static const struct file_operations dwc_pcie_err_inj_ops = {
++	.open = simple_open,
++	.write = err_inj_write,
++};
++
+ void dwc_pcie_rasdes_debugfs_deinit(struct dw_pcie *pci)
+ {
+ 	struct dwc_pcie_rasdes_info *rinfo = pci->rasdes_info;
+@@ -129,12 +271,13 @@ void dwc_pcie_rasdes_debugfs_deinit(struct dw_pcie *pci)
+ 
+ int dwc_pcie_rasdes_debugfs_init(struct dw_pcie *pci)
+ {
+-	struct dentry *dir, *rasdes_debug;
++	struct dentry *dir, *rasdes_debug, *rasdes_err_inj;
+ 	struct dwc_pcie_rasdes_info *rasdes_info;
++	struct dwc_pcie_rasdes_priv *priv_tmp;
+ 	const struct dwc_pcie_vendor_id *vid;
+ 	char dirname[DWC_DEBUGFS_BUF_MAX];
+ 	struct device *dev = pci->dev;
+-	int ras_cap;
++	int ras_cap, i, ret;
+ 
+ 	for (vid = dwc_pcie_vendor_ids; vid->vendor_id; vid++) {
+ 		ras_cap = dw_pcie_find_vsec_capability(pci, vid->vendor_id,
+@@ -159,6 +302,7 @@ int dwc_pcie_rasdes_debugfs_init(struct dw_pcie *pci)
+ 
+ 	/* Create subdirectories for Debug, Error injection, Statistics */
+ 	rasdes_debug = debugfs_create_dir("rasdes_debug", dir);
++	rasdes_err_inj = debugfs_create_dir("rasdes_err_inj", dir);
+ 
+ 	mutex_init(&rasdes_info->reg_lock);
+ 	rasdes_info->ras_cap_offset = ras_cap;
+@@ -169,5 +313,22 @@ int dwc_pcie_rasdes_debugfs_init(struct dw_pcie *pci)
+ 	dwc_debugfs_create(lane_detect);
+ 	dwc_debugfs_create(rx_valid);
+ 
++	/* Create debugfs files for Error injection subdirectory */
++	for (i = 0; i < ARRAY_SIZE(err_inj_list); i++) {
++		priv_tmp = devm_kzalloc(dev, sizeof(*priv_tmp), GFP_KERNEL);
++		if (!priv_tmp) {
++			ret = -ENOMEM;
++			goto err_deinit;
++		}
++
++		priv_tmp->idx = i;
++		priv_tmp->pci = pci;
++		debugfs_create_file(err_inj_list[i].name, 0200, rasdes_err_inj, priv_tmp,
++				    &dwc_pcie_err_inj_ops);
++	}
+ 	return 0;
++
++err_deinit:
++	dwc_pcie_rasdes_debugfs_deinit(pci);
++	return ret;
+ }
+-- 
+2.48.1
+

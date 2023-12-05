@@ -1,0 +1,101 @@
+From fc3ebf838d3b61b92345f0c6e1859a27f8857008 Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <cassel@kernel.org>
+Date: Fri, 31 Jan 2025 19:29:50 +0100
+Subject: [PATCH 01/19] PCI: endpoint: Allow EPF drivers to configure the size
+ of Resizable BARs
+
+A resizable BAR is different from a normal BAR in a few ways:
+-The minimum size of a resizable BAR is 1 MB.
+-Each BAR that is resizable has a Capability and Control register in the
+ Resizable BAR Capability structure.
+
+These registers contain the supported sizes and the currently selected
+size of a resizable BAR.
+
+The supported sizes is a bitmap of the supported sizes. The selected size
+is a single value that is equal to one of the supported sizes.
+
+A resizable BAR thus has to be configured differently than a
+BAR_PROGRAMMABLE BAR, which usually sets the BAR size/mask in a vendor
+specific way.
+
+The PCI endpoint framework currently does not support resizable BARs.
+
+Add a BAR type BAR_RESIZABLE, so that an EPC driver can support resizable
+BARs properly.
+
+Note that the pci_epc_set_bar() API takes a struct pci_epf_bar which tells
+the EPC driver how it wants to configure the BAR.
+
+struct pci_epf_bar only has a single size struct member.
+
+This means that an EPC driver will only be able to set a single supported
+size. This is perfectly fine, as we do not need the complexity of allowing
+a host to change the size of the BAR. If someone ever wants to support
+resizing a resizable BAR, the pci_epc_set_bar() API can be extended in the
+future.
+
+With these changes, we allow an EPF driver to configure the size of
+Resizable BARs, rather than forcing them to a 1 MB size.
+
+Signed-off-by: Niklas Cassel <cassel@kernel.org>
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/endpoint/pci-epc-core.c | 4 ++++
+ drivers/pci/endpoint/pci-epf-core.c | 4 ++++
+ include/linux/pci-epc.h             | 4 ++++
+ 3 files changed, 12 insertions(+)
+
+diff --git a/drivers/pci/endpoint/pci-epc-core.c b/drivers/pci/endpoint/pci-epc-core.c
+index 9e9ca5f8e8f8..10dfc716328e 100644
+--- a/drivers/pci/endpoint/pci-epc-core.c
++++ b/drivers/pci/endpoint/pci-epc-core.c
+@@ -609,6 +609,10 @@ int pci_epc_set_bar(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 	if (!epc_features)
+ 		return -EINVAL;
+ 
++	if (epc_features->bar[bar].type == BAR_RESIZABLE &&
++	    (epf_bar->size < SZ_1M || (u64)epf_bar->size > (SZ_128G * 1024)))
++		return -EINVAL;
++
+ 	if (epc_features->bar[bar].type == BAR_FIXED &&
+ 	    (epc_features->bar[bar].fixed_size != epf_bar->size))
+ 		return -EINVAL;
+diff --git a/drivers/pci/endpoint/pci-epf-core.c b/drivers/pci/endpoint/pci-epf-core.c
+index 50bc2892a36c..394395c7f8de 100644
+--- a/drivers/pci/endpoint/pci-epf-core.c
++++ b/drivers/pci/endpoint/pci-epf-core.c
+@@ -274,6 +274,10 @@ void *pci_epf_alloc_space(struct pci_epf *epf, size_t size, enum pci_barno bar,
+ 	if (size < 128)
+ 		size = 128;
+ 
++	/* According to PCIe base spec, min size for a resizable BAR is 1 MB. */
++	if (epc_features->bar[bar].type == BAR_RESIZABLE && size < SZ_1M)
++		size = SZ_1M;
++
+ 	if (epc_features->bar[bar].type == BAR_FIXED && bar_fixed_size) {
+ 		if (size > bar_fixed_size) {
+ 			dev_err(&epf->dev,
+diff --git a/include/linux/pci-epc.h b/include/linux/pci-epc.h
+index e818e3fdcded..91ce39dc0fd4 100644
+--- a/include/linux/pci-epc.h
++++ b/include/linux/pci-epc.h
+@@ -188,11 +188,15 @@ struct pci_epc {
+  * enum pci_epc_bar_type - configurability of endpoint BAR
+  * @BAR_PROGRAMMABLE: The BAR mask can be configured by the EPC.
+  * @BAR_FIXED: The BAR mask is fixed by the hardware.
++ * @BAR_RESIZABLE: The BAR implements the PCI-SIG Resizable BAR Capability.
++ *		   NOTE: An EPC driver can currently only set a single supported
++ *		   size.
+  * @BAR_RESERVED: The BAR should not be touched by an EPF driver.
+  */
+ enum pci_epc_bar_type {
+ 	BAR_PROGRAMMABLE = 0,
+ 	BAR_FIXED,
++	BAR_RESIZABLE,
+ 	BAR_RESERVED,
+ };
+ 
+-- 
+2.48.1
+

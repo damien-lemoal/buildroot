@@ -1,0 +1,97 @@
+From e62f4dfd8dc53eeef789139c84e3518e5036ecf2 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Mon, 10 Mar 2025 14:37:55 +0900
+Subject: [PATCH 08/19] PCI: dwc: ep: Add dw_pcie_ep_hide_ext_capability()
+
+Add dw_pcie_ep_hide_ext_capability() which can be used by an endpoint
+controller driver to hide a capability.
+
+This can be useful to hide a capability that is buggy, such that the
+host side does not try to enable the buggy capability.
+
+Suggested-by: Manivannan Sadhasivam <manivannan.sadhasivam@linaro.org>
+Signed-off-by: Niklas Cassel <cassel@kernel.org>
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ .../pci/controller/dwc/pcie-designware-ep.c   | 39 +++++++++++++++++++
+ drivers/pci/controller/dwc/pcie-designware.h  |  7 ++++
+ 2 files changed, 46 insertions(+)
+
+diff --git a/drivers/pci/controller/dwc/pcie-designware-ep.c b/drivers/pci/controller/dwc/pcie-designware-ep.c
+index 72418160e658..1c1ec8d4db81 100644
+--- a/drivers/pci/controller/dwc/pcie-designware-ep.c
++++ b/drivers/pci/controller/dwc/pcie-designware-ep.c
+@@ -120,6 +120,45 @@ static unsigned int dw_pcie_ep_find_ext_capability(struct dw_pcie *pci, int cap)
+ 	return 0;
+ }
+ 
++/**
++ * dw_pcie_ep_hide_ext_capability - Hide a capability from the linked list
++ * @pci: DWC PCI device
++ * @prev_cap: Capability preceding the capability that should be hidden
++ * @cap: Capability that should be hidden
++ *
++ * Return: 0 if success, errno otherwise.
++ */
++int dw_pcie_ep_hide_ext_capability(struct dw_pcie *pci, u8 prev_cap, u8 cap)
++{
++	u16 prev_cap_offset, cap_offset;
++	u32 prev_cap_header, cap_header;
++
++	prev_cap_offset = dw_pcie_find_ext_capability(pci, prev_cap);
++	if (!prev_cap_offset)
++		return -EINVAL;
++
++	prev_cap_header = dw_pcie_readl_dbi(pci, prev_cap_offset);
++	cap_offset = PCI_EXT_CAP_NEXT(prev_cap_header);
++	cap_header = dw_pcie_readl_dbi(pci, cap_offset);
++
++	/* cap must immediately follow prev_cap. */
++	if (PCI_EXT_CAP_ID(cap_header) != cap)
++		return -EINVAL;
++
++	/* Clear next ptr. */
++	prev_cap_header &= ~GENMASK(31, 20);
++
++	/* Set next ptr to next ptr of cap. */
++	prev_cap_header |= cap_header & GENMASK(31, 20);
++
++	dw_pcie_dbi_ro_wr_en(pci);
++	dw_pcie_writel_dbi(pci, prev_cap_offset, prev_cap_header);
++	dw_pcie_dbi_ro_wr_dis(pci);
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(dw_pcie_ep_hide_ext_capability);
++
+ static int dw_pcie_ep_write_header(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 				   struct pci_epf_header *hdr)
+ {
+diff --git a/drivers/pci/controller/dwc/pcie-designware.h b/drivers/pci/controller/dwc/pcie-designware.h
+index 501d9ddfea16..afa35228c7da 100644
+--- a/drivers/pci/controller/dwc/pcie-designware.h
++++ b/drivers/pci/controller/dwc/pcie-designware.h
+@@ -743,6 +743,7 @@ int dw_pcie_ep_raise_msix_irq(struct dw_pcie_ep *ep, u8 func_no,
+ int dw_pcie_ep_raise_msix_irq_doorbell(struct dw_pcie_ep *ep, u8 func_no,
+ 				       u16 interrupt_num);
+ void dw_pcie_ep_reset_bar(struct dw_pcie *pci, enum pci_barno bar);
++int dw_pcie_ep_hide_ext_capability(struct dw_pcie *pci, u8 prev_cap, u8 cap);
+ struct dw_pcie_ep_func *
+ dw_pcie_ep_get_func_from_ep(struct dw_pcie_ep *ep, u8 func_no);
+ #else
+@@ -800,6 +801,12 @@ static inline void dw_pcie_ep_reset_bar(struct dw_pcie *pci, enum pci_barno bar)
+ {
+ }
+ 
++static inline int dw_pcie_ep_hide_ext_capability(struct dw_pcie *pci,
++						 u8 prev_cap, u8 cap)
++{
++	return 0;
++}
++
+ static inline struct dw_pcie_ep_func *
+ dw_pcie_ep_get_func_from_ep(struct dw_pcie_ep *ep, u8 func_no)
+ {
+-- 
+2.48.1
+
