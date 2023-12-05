@@ -1,0 +1,327 @@
+From 09f13d986ddb033470f41a45b97b9f286840447b Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Thu, 14 Dec 2023 10:50:35 +0900
+Subject: [PATCH 44/47] PCI: dw-rockchip: Cleanup debug messages
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ .../pci/controller/dwc/pcie-designware-ep.c   | 27 +-----
+ drivers/pci/controller/dwc/pcie-designware.c  |  7 --
+ drivers/pci/controller/dwc/pcie-dw-rockchip.c | 93 ++++++++++---------
+ 3 files changed, 51 insertions(+), 76 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-designware-ep.c b/drivers/pci/controller/dwc/pcie-designware-ep.c
+index e6ca20d55935..6c94321f20b2 100644
+--- a/drivers/pci/controller/dwc/pcie-designware-ep.c
++++ b/drivers/pci/controller/dwc/pcie-designware-ep.c
+@@ -78,13 +78,9 @@ static void __dw_pcie_ep_reset_bar(struct dw_pcie *pci, u8 func_no,
+ 	reg = func_offset + PCI_BASE_ADDRESS_0 + (4 * bar);
+ 	reg_dbi2 = dbi2_offset + PCI_BASE_ADDRESS_0 + (4 * bar);
+ 	dw_pcie_dbi_ro_wr_en(pci);
+-	pr_err("pci: %s: writing 0 to BAR: %d (dbi2 + offset: %#x)\n",
+-	       __func__, bar, reg_dbi2);
+ 	dw_pcie_writel_dbi2(pci, reg_dbi2, 0x0);
+ 	dw_pcie_writel_dbi(pci, reg, 0x0);
+ 	if (flags & PCI_BASE_ADDRESS_MEM_TYPE_64) {
+-		pr_err("pci: %s: 64-bit !!! writing 0 to BAR: %d (dbi2 + offset: %#x)\n",
+-		       __func__, bar, reg_dbi2 + 4);
+ 		dw_pcie_writel_dbi2(pci, reg_dbi2 + 4, 0x0);
+ 		dw_pcie_writel_dbi(pci, reg + 4, 0x0);
+ 	}
+@@ -182,7 +178,6 @@ static int dw_pcie_ep_inbound_atu(struct dw_pcie_ep *ep, u8 func_no, int type,
+ 	saved_atu = ep->bar_to_atu[bar];
+ 	if (!saved_atu) {
+ 		free_win = find_first_zero_bit(ep->ib_window_map, pci->num_ib_windows);
+-		//pr_err("%s BAR: %d, found no ATU, using first free, index: %d\n", __func__, bar, free_win);
+ 		if (free_win >= pci->num_ib_windows) {
+ 			dev_err(pci->dev, "No free inbound window\n");
+ 			return -EINVAL;
+@@ -195,7 +190,6 @@ static int dw_pcie_ep_inbound_atu(struct dw_pcie_ep *ep, u8 func_no, int type,
+ 		saved_atu = free_win + 1;
+ 	} else {
+ 		free_win = saved_atu - 1;
+-		//pr_err("%s BAR: %d, already has ATU, index: %d\n", __func__, bar, free_win);
+ 	}
+ 
+ 	ret = dw_pcie_prog_ep_inbound_atu(pci, func_no, free_win, type,
+@@ -244,9 +238,6 @@ static void dw_pcie_ep_clear_bar(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 	enum pci_barno bar = epf_bar->barno;
+ 	u32 atu_index = ep->bar_to_atu[bar];
+ 
+-	pr_err("pci: %s: clearing BAR: %d, iATU index: %d\n",
+-	       __func__, bar, atu_index);
+-
+ 	__dw_pcie_ep_reset_bar(pci, func_no, bar, epf_bar->flags);
+ 
+ 	dw_pcie_disable_atu(pci, PCIE_ATU_REGION_DIR_IB, atu_index);
+@@ -267,8 +258,6 @@ static int dw_pcie_ep_set_bar(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 	u32 reg, reg_dbi2;
+ 	int ret, type;
+ 
+-	pr_err("%s: BAR: %d\n", __func__, bar);
+-
+ 	func_offset = dw_pcie_ep_func_select(ep, func_no);
+ 	dbi2_offset = dw_pcie_ep_get_dbi2_offset(ep, func_no);
+ 
+@@ -295,15 +284,10 @@ static int dw_pcie_ep_set_bar(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 
+ 	dw_pcie_dbi_ro_wr_en(pci);
+ 
+-	//pr_err("pci: %s: writing %#x to BAR: %d (dbi2 + offset: %#x)\n",
+-	//       __func__, lower_32_bits(size - 1), bar, reg_dbi2);
+-	pr_err("%s: BAR%d_REG: %#x\n", __func__, bar, dw_pcie_readl_dbi(pci, reg));
+ 	dw_pcie_writel_dbi2(pci, reg_dbi2, lower_32_bits(size - 1));
+ 	dw_pcie_writel_dbi(pci, reg, flags);
+ 
+ 	if (flags & PCI_BASE_ADDRESS_MEM_TYPE_64) {
+-		//pr_err("pci: %s: 64-bit !!! writing %#x to BAR: %d (dbi2 + offset: %#x)\n",
+-		//       __func__, upper_32_bits(size - 1), bar, reg_dbi2 + 4);
+ 		dw_pcie_writel_dbi2(pci, reg_dbi2 + 4, upper_32_bits(size - 1));
+ 		dw_pcie_writel_dbi(pci, reg + 4, 0);
+ 	}
+@@ -735,17 +719,10 @@ int dw_pcie_ep_init_complete(struct dw_pcie_ep *ep)
+ 		reg = dw_pcie_readl_dbi(pci, offset + PCI_REBAR_CTRL);
+ 		nbars = (reg & PCI_REBAR_CTRL_NBAR_MASK) >>
+ 			PCI_REBAR_CTRL_NBAR_SHIFT;
+-		//pr_err("pci: found resizable BAR cap at: %#x nbars: %u\n", offset, nbars);
+ 
+ 		for (i = 0; i < nbars; i++, offset += PCI_REBAR_CTRL) {
+-			//pr_err("pci: writing 0 to BAR%d CAP dbi + offset: %#x\n",
+-			//       i, offset + PCI_REBAR_CAP);
+-			dw_pcie_writel_dbi(pci, offset + PCI_REBAR_CAP, BIT(4)); // 1MB
+-			dw_pcie_writel_dbi(pci, offset + PCI_REBAR_CTRL, 0x0); // clear, 1MB
+-			pr_err("pci: BAR%d CAP: %#x CTRL: %#x\n",
+-			       i,
+-			       dw_pcie_readl_dbi(pci, offset + PCI_REBAR_CAP),
+-			       dw_pcie_readl_dbi(pci, offset + PCI_REBAR_CTRL));
++			dw_pcie_writel_dbi(pci, offset + PCI_REBAR_CAP, BIT(4));
++			dw_pcie_writel_dbi(pci, offset + PCI_REBAR_CTRL, 0x0);
+ 		}
+ 	}
+ #endif
+diff --git a/drivers/pci/controller/dwc/pcie-designware.c b/drivers/pci/controller/dwc/pcie-designware.c
+index 7a21f54c180f..250cf7f40b85 100644
+--- a/drivers/pci/controller/dwc/pcie-designware.c
++++ b/drivers/pci/controller/dwc/pcie-designware.c
+@@ -477,9 +477,6 @@ static int __dw_pcie_prog_outbound_atu(struct dw_pcie *pci, u8 func_no,
+ 
+ 	limit_addr = cpu_addr + size - 1;
+ 
+-	//pr_err("%s: pci_addr: %#llx size: %#llx limit_addr: %#llx cpu_addr %#llx region_limit: %#llx region_align: %#x\n",
+-	//       __func__, pci_addr, size, limit_addr, cpu_addr, pci->region_limit, pci->region_align);
+-
+ 	if ((limit_addr & ~pci->region_limit) != (cpu_addr & ~pci->region_limit) ||
+ 	    !IS_ALIGNED(cpu_addr, pci->region_align) ||
+ 	    !IS_ALIGNED(pci_addr, pci->region_align) || !size) {
+@@ -620,10 +617,6 @@ int dw_pcie_prog_ep_inbound_atu(struct dw_pcie *pci, u8 func_no, int index,
+ 	dw_pcie_writel_atu_ib(pci, index, PCIE_ATU_UPPER_TARGET,
+ 			      upper_32_bits(cpu_addr));
+ 
+-	//pr_err("pci: %s: BAR: %u - using iATU index: %d func_no: %u setting to phys_addr: %#llx (lower: %#x upper: %#x)\n",
+-	//       __func__, bar, index, func_no, cpu_addr, lower_32_bits(cpu_addr),
+-	//       upper_32_bits(cpu_addr));
+-
+ 	dw_pcie_writel_atu_ib(pci, index, PCIE_ATU_REGION_CTRL1, type |
+ 			      PCIE_ATU_FUNC_NUM(func_no));
+ 	dw_pcie_writel_atu_ib(pci, index, PCIE_ATU_REGION_CTRL2,
+diff --git a/drivers/pci/controller/dwc/pcie-dw-rockchip.c b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+index 23eee0c46810..ccb77c8d103c 100644
+--- a/drivers/pci/controller/dwc/pcie-dw-rockchip.c
++++ b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+@@ -335,8 +335,11 @@ static void rockchip_pcie_phy_deinit(struct rockchip_pcie *rockchip)
+ 
+ static int rockchip_perst_assert(struct rockchip_pcie *rockchip)
+ {
++	struct device *dev = rockchip->pci.dev;
+ 	int ret;
+ 
++	dev_info(dev, "PERST asserted, shutting down the link\n");
++
+ 	if (rockchip->ep_state == PCIE_EP_STATE_DISABLED)
+ 		return 0;
+ 
+@@ -361,34 +364,40 @@ static int rockchip_perst_assert(struct rockchip_pcie *rockchip)
+ 
+ static int rockchip_perst_deassert(struct rockchip_pcie *rockchip)
+ {
++	struct device *dev = rockchip->pci.dev;
+ 	int ret;
+ 	u32 val;
+ 
++	dev_info(dev, "PERST de-asserted, starting link training\n");
++
+ 	if (rockchip->ep_state == PCIE_EP_STATE_ENABLED)
+ 		return 0;
+ 
+-	//TODO: verify that all core registers are the same here as after probe
+-
+-	//also things like unmasked IRQs, ENHANCED LTSSM, EP mode, etc...
+-
+-	//probably need to do a core reset here... (enable_resources())
+ 	if (rockchip->vpcie3v3) {
+ 		ret = regulator_enable(rockchip->vpcie3v3);
+-		if (ret)
+-			return ret; //TODO: goto
++		if (ret) {
++			dev_err(dev, "Enable regulator failed %d\n", ret);
++			return ret;
++		}
+ 	}
+ 
+ 	ret = rockchip_pcie_phy_init(rockchip);
+-	if (ret)
+-		return ret; //TODO: goto
++	if (ret) {
++		dev_err(dev, "PHY init failed %d\n", ret);
++		return ret;
++	}
+ 
+ 	ret = reset_control_deassert(rockchip->rst);
+-	if (ret)
+-		return ret; //TODO: goto
++	if (ret) {
++		dev_err(dev, "Reset control deassert failed %d\n", ret);
++		return ret;
++	}
+ 
+ 	ret = rockchip_pcie_clk_init(rockchip);
+-	if (ret)
++	if (ret) {
++		dev_err(dev, "clk init failed %d\n", ret);
+ 		return ret;
++	}
+ 
+ 	/* LTSSM enable control mode */
+ 	val = HIWORD_UPDATE_BIT(PCIE_LTSSM_ENABLE_ENHANCE);
+@@ -404,9 +413,7 @@ static int rockchip_perst_deassert(struct rockchip_pcie *rockchip)
+ 
+ 	ret = dw_pcie_ep_init_complete(&rockchip->pci.ep);
+ 	if (ret) {
+-		//dev_err(dev, "Failed to complete initialization: %d\n", ret);
+-		pr_err("Failed to complete initialization: %d\n", ret);
+-		//TODO: goto error
++		dev_err(dev, "Failed to complete initialization: %d\n", ret);
+ 		return ret;
+ 	}
+ 
+@@ -429,36 +436,36 @@ static irqreturn_t rockchip_pcie_sys_irq_handler(int irq, void *arg)
+ {
+ 	struct rockchip_pcie *rockchip = arg;
+ 	struct dw_pcie *pci = &rockchip->pci;
++	struct device *dev = pci->dev;
+ 	u32 reg;
+ 	u32 val;
+ 
+ 	reg = rockchip_pcie_readl_apb(rockchip, PCIE_CLIENT_INTR_STATUS_MISC);
+ 
+-	pr_info("pci: PCIE_CLIENT_INTR_STATUS_MISC: %#x\n", reg);
+-	pr_info("LTSSM_STATUS: %#x\n",
+-	       rockchip_pcie_readl_apb(rockchip, PCIE_CLIENT_LTSSM_STATUS));
++	dev_info(dev, "pci: PCIE_CLIENT_INTR_STATUS_MISC: %#x\n", reg);
++	dev_info(dev, "    PHY is %s\n",
++		 (reg & PCIE_SMLH_LINKUP) ? "UP" : "DOWN");
++	dev_info(dev, "    DATA link is %s\n",
++		 (reg & PCIE_RDLH_LINKUP) ? "UP" : "DOWN");
++	dev_info(dev, "    LTSSM_STATUS: %#x\n",
++		 rockchip_pcie_readl_apb(rockchip, PCIE_CLIENT_LTSSM_STATUS));
+ 
+ 	if (reg & BIT(2)) {
+ 		unsigned int offset, nbars;
+ 		int i;
+ 
+-		val = rockchip_pcie_readl_apb(rockchip, PCIE_CLIENT_LTSSM_STATUS);
+-		pr_err("pci: hot reset or link-down reset (LTSSM_STATUS: %#x)\n", val);
++		dev_info(dev,
++			 "Hot reset or link-down reset (LTSSM_STATUS: %#x)\n",
++			 rockchip_pcie_readl_apb(rockchip,
++						 PCIE_CLIENT_LTSSM_STATUS));
+ 
+ 		offset = dw_pcie_find_ext_capability(pci, PCI_EXT_CAP_ID_REBAR);
+ 		val = dw_pcie_readl_dbi(pci, offset + PCI_REBAR_CTRL);
+ 		nbars = (val & PCI_REBAR_CTRL_NBAR_MASK) >>
+ 			PCI_REBAR_CTRL_NBAR_SHIFT;
+ 
+-		//todo: clear them to same as fixed size?
+-		//or drop fixed size...?
+-		for (i = 0; i < nbars; i++, offset += PCI_REBAR_CTRL) {
+-			dw_pcie_writel_dbi(pci, offset + PCI_REBAR_CTRL, 0x0); // clear, 1MB
+-			pr_err("pci: BAR%d CAP: %#x CTRL: %#x\n",
+-			       i,
+-			       dw_pcie_readl_dbi(pci, offset + PCI_REBAR_CAP),
+-			       dw_pcie_readl_dbi(pci, offset + PCI_REBAR_CTRL));
+-		}
++		for (i = 0; i < nbars; i++, offset += PCI_REBAR_CTRL)
++			dw_pcie_writel_dbi(pci, offset + PCI_REBAR_CTRL, 0x0);
+ 
+ 		/* Setup command register */
+ 		val = dw_pcie_readl_dbi(pci, PCI_COMMAND);
+@@ -471,8 +478,8 @@ static irqreturn_t rockchip_pcie_sys_irq_handler(int irq, void *arg)
+ 	if (reg & PCIE_RDLH_LINK_UP_CHGED) {
+ 		val = rockchip_pcie_readl_apb(rockchip, PCIE_CLIENT_LTSSM_STATUS);
+ 		if ((val & PCIE_LINKUP) == PCIE_LINKUP) {
++			dev_info(dev, "Link UP (LTSSM_STATUS: %#x)\n", val);
+ 			dw_pcie_ep_linkup(&pci->ep);
+-			pr_err("pci: link up! (LTSSM_STATUS: %#x)\n", val);
+ 		}
+ 	}
+ 
+@@ -484,16 +491,11 @@ static irqreturn_t rockchip_pcie_sys_irq_handler(int irq, void *arg)
+ static irqreturn_t rockchip_pcie_ep_perst_irq_thread(int irq, void *data)
+ {
+ 	struct rockchip_pcie *rockchip = data;
+-	int perst;
+ 
+-	perst = gpiod_get_value(rockchip->rst_gpio);
+-	if (perst) {
+-		pr_err("pci: PERST asserted by host. Shutting down the PCIe link!\n");
++	if (gpiod_get_value(rockchip->rst_gpio))
+ 		rockchip_perst_assert(rockchip);
+-	} else {
+-		pr_err("pci: PERST de-asserted by host. Starting link training!\n");
++	else
+ 		rockchip_perst_deassert(rockchip);
+-	}
+ 
+ 	return IRQ_HANDLED;
+ }
+@@ -519,7 +521,8 @@ static int rockchip_pcie_resource_get(struct platform_device *pdev,
+ 
+ 		ret = gpiod_to_irq(rockchip->rst_gpio);
+ 		if (ret < 0) {
+-			dev_err(&pdev->dev, "Failed to get IRQ for PERST GPIO: %d\n", ret);
++			dev_err(&pdev->dev,
++				"Failed to get IRQ for PERST GPIO: %d\n", ret);
+ 			return ret;
+ 		}
+ 		rockchip->perst_irq = (unsigned int)ret;
+@@ -534,7 +537,8 @@ static int rockchip_pcie_resource_get(struct platform_device *pdev,
+ 						IRQF_TRIGGER_FALLING | IRQF_ONESHOT,
+ 						"perst_irq", rockchip);
+ 		if (ret < 0) {
+-			dev_err(&pdev->dev, "Failed to request IRQ for PERST: %d\n", ret);
++			dev_err(&pdev->dev,
++				"Failed to request IRQ for PERST: %d\n", ret);
+ 			return ret;
+ 		}
+ 	}
+@@ -613,11 +617,12 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
+ 	val = HIWORD_UPDATE_BIT(PCIE_LTSSM_ENABLE_ENHANCE);
+ 	rockchip_pcie_writel_apb(rockchip, val, PCIE_CLIENT_HOT_RESET_CTRL);
+ 
+-	// TODO: either move this code do a add_ep() function, or if mode == EP
+-	irq = platform_get_irq_byname(pdev, "sys");
+-	if (irq < 0) {
+-		dev_err(dev, "missing sys IRQ resource\n");
+-		return -EINVAL;
++	if (rockchip->mode == DW_PCIE_EP_TYPE) {
++		irq = platform_get_irq_byname(pdev, "sys");
++		if (irq < 0) {
++			dev_err(dev, "missing sys IRQ resource\n");
++			return -EINVAL;
++		}
+ 	}
+ 
+ 	ret = devm_request_irq(dev, irq, rockchip_pcie_sys_irq_handler,
+-- 
+2.43.0
+

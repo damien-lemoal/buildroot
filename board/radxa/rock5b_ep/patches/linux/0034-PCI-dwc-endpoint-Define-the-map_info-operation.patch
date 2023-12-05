@@ -1,0 +1,54 @@
+From cd31400b20aa5f2dde61c19b7a6d46e428c20f90 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Thu, 7 Dec 2023 18:09:57 +0900
+Subject: [PATCH 34/47] PCI: dwc: endpoint: Define the map_info operation
+
+The Designware PCI endpoint controller requires that a RC PCI address
+range be aligned to 64K for mapping. However, an endpoint function
+driver may not require such alignment and may need to handle mapping for
+RC PCI addresses That are not aligned to 64K boundaries.
+
+Define the map_info operation to allow endpoint function drivers to get
+mapping information required to handle any RC PCI address range
+regardless of their alignment.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/dwc/pcie-designware-ep.c | 14 ++++++++++++++
+ 1 file changed, 14 insertions(+)
+
+diff --git a/drivers/pci/controller/dwc/pcie-designware-ep.c b/drivers/pci/controller/dwc/pcie-designware-ep.c
+index 12d8ac7452e9..1b12529a6136 100644
+--- a/drivers/pci/controller/dwc/pcie-designware-ep.c
++++ b/drivers/pci/controller/dwc/pcie-designware-ep.c
+@@ -330,6 +330,19 @@ static int dw_pcie_find_index(struct dw_pcie_ep *ep, phys_addr_t addr,
+ 	return -EINVAL;
+ }
+ 
++static int dw_pcie_ep_map_info(struct pci_epc *epc, u8 fn, u8 vfn,
++			       struct pci_epc_map *map)
++{
++	struct dw_pcie_ep *ep = epc_get_drvdata(epc);
++	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
++
++	map->map_pci_addr = map->pci_addr & ~(pci->region_align - 1);
++	map->map_ofst = map->pci_addr & (pci->region_align - 1);
++	map->map_size = ALIGN(map->map_ofst + map->pci_size, pci->region_align);
++
++	return 0;
++}
++
+ static void dw_pcie_ep_unmap_addr(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 				  phys_addr_t addr)
+ {
+@@ -514,6 +527,7 @@ static const struct pci_epc_ops epc_ops = {
+ 	.write_header		= dw_pcie_ep_write_header,
+ 	.set_bar		= dw_pcie_ep_set_bar,
+ 	.clear_bar		= dw_pcie_ep_clear_bar,
++	.map_info		= dw_pcie_ep_map_info,
+ 	.map_addr		= dw_pcie_ep_map_addr,
+ 	.unmap_addr		= dw_pcie_ep_unmap_addr,
+ 	.set_msi		= dw_pcie_ep_set_msi,
+-- 
+2.43.0
+
