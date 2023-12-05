@@ -1,0 +1,50 @@
+From 12d8f0723ae7456a1da238cce59f8661087787de Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Wed, 11 Jun 2025 13:24:22 +0900
+Subject: [PATCH 4/5] arm64: dts: rockchip: Add DT overlay to disable pcie3x4
+ mmu
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ arch/arm64/boot/dts/rockchip/Makefile            |  1 +
+ .../dts/rockchip/rk3588-rock-5b-no-iommu.dtso    | 16 ++++++++++++++++
+ 2 files changed, 17 insertions(+)
+ create mode 100644 arch/arm64/boot/dts/rockchip/rk3588-rock-5b-no-iommu.dtso
+
+diff --git a/arch/arm64/boot/dts/rockchip/Makefile b/arch/arm64/boot/dts/rockchip/Makefile
+index 099520962ffb..373713233b24 100644
+--- a/arch/arm64/boot/dts/rockchip/Makefile
++++ b/arch/arm64/boot/dts/rockchip/Makefile
+@@ -177,6 +177,7 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3588-orangepi-5-ultra.dtb
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3588-quartzpro64.dtb
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3588-rock-5-itx.dtb
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3588-rock-5b.dtb
++dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3588-rock-5b-no-iommu.dtbo
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3588-rock-5b-pcie-ep.dtbo
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3588-rock-5b-pcie-srns.dtbo
+ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3588-rock-5b-plus.dtb
+diff --git a/arch/arm64/boot/dts/rockchip/rk3588-rock-5b-no-iommu.dtso b/arch/arm64/boot/dts/rockchip/rk3588-rock-5b-no-iommu.dtso
+new file mode 100644
+index 000000000000..c77a359526e1
+--- /dev/null
++++ b/arch/arm64/boot/dts/rockchip/rk3588-rock-5b-no-iommu.dtso
+@@ -0,0 +1,16 @@
++// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
++/*
++ * DT-overlay to run the PCIe3_4L Dual Mode controller in Endpoint mode
++ * in the SRNS (Separate Reference Clock No Spread) configuration.
++ *
++ * NOTE: If using a setup with two ROCK 5B:s, with one board running in
++ * RC mode and the other board running in EP mode, see also the device
++ * tree overlay: rk3588-rock-5b-pcie-srns.dtso.
++ */
++
++/dts-v1/;
++/plugin/;
++
++&mmu600_pcie {
++	status = "disabled";
++};
+-- 
+2.51.1
+
