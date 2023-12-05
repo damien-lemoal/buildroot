@@ -1,0 +1,1 @@
+buildroot -1 buildroot -1 =buildroot /home/buildroot /bin/sh root Buildroot user
