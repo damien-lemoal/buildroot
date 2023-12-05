@@ -1,0 +1,68 @@
+From 59143a46110a38d832eed5d8bcad7e2cf1d653bd Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <cassel@kernel.org>
+Date: Fri, 31 Jan 2025 19:29:56 +0100
+Subject: [PATCH 07/16] PCI: dw-rockchip: Describe Resizable BARs as Resizable
+ BARs
+
+Looking at "11.4.4.29 USP_PCIE_RESBAR Registers Summary" in the rk3588 TRM,
+we can see that none of the BARs are Fixed BARs, but actually Resizable
+BARs.
+
+I couldn't find any reference in the rk3568 TRM, but looking at the
+downstream PCIe endpoint driver, rk3568 and rk3588 are treated as the same,
+so the BARs on rk3568 must also be Resizable BARs.
+
+Now when we actually have support for Resizable BARs, let's configure
+these BARs as such.
+
+Reviewed-by: Manivannan Sadhasivam <manivannan.sadhasivam@linaro.org>
+Signed-off-by: Niklas Cassel <cassel@kernel.org>
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/dwc/pcie-dw-rockchip.c | 22 +++++++++----------
+ 1 file changed, 11 insertions(+), 11 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-dw-rockchip.c b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+index 93698abff4d9..df2eaa35d045 100644
+--- a/drivers/pci/controller/dwc/pcie-dw-rockchip.c
++++ b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+@@ -273,12 +273,12 @@ static const struct pci_epc_features rockchip_pcie_epc_features_rk3568 = {
+ 	.msi_capable = true,
+ 	.msix_capable = true,
+ 	.align = SZ_64K,
+-	.bar[BAR_0] = { .type = BAR_FIXED, .fixed_size = SZ_1M, },
+-	.bar[BAR_1] = { .type = BAR_FIXED, .fixed_size = SZ_1M, },
+-	.bar[BAR_2] = { .type = BAR_FIXED, .fixed_size = SZ_1M, },
+-	.bar[BAR_3] = { .type = BAR_FIXED, .fixed_size = SZ_1M, },
+-	.bar[BAR_4] = { .type = BAR_FIXED, .fixed_size = SZ_1M, },
+-	.bar[BAR_5] = { .type = BAR_FIXED, .fixed_size = SZ_1M, },
++	.bar[BAR_0] = { .type = BAR_RESIZABLE, },
++	.bar[BAR_1] = { .type = BAR_RESIZABLE, },
++	.bar[BAR_2] = { .type = BAR_RESIZABLE, },
++	.bar[BAR_3] = { .type = BAR_RESIZABLE, },
++	.bar[BAR_4] = { .type = BAR_RESIZABLE, },
++	.bar[BAR_5] = { .type = BAR_RESIZABLE, },
+ };
+ 
+ /*
+@@ -293,12 +293,12 @@ static const struct pci_epc_features rockchip_pcie_epc_features_rk3588 = {
+ 	.msi_capable = true,
+ 	.msix_capable = true,
+ 	.align = SZ_64K,
+-	.bar[BAR_0] = { .type = BAR_FIXED, .fixed_size = SZ_1M, },
+-	.bar[BAR_1] = { .type = BAR_FIXED, .fixed_size = SZ_1M, },
+-	.bar[BAR_2] = { .type = BAR_FIXED, .fixed_size = SZ_1M, },
+-	.bar[BAR_3] = { .type = BAR_FIXED, .fixed_size = SZ_1M, },
++	.bar[BAR_0] = { .type = BAR_RESIZABLE, },
++	.bar[BAR_1] = { .type = BAR_RESIZABLE, },
++	.bar[BAR_2] = { .type = BAR_RESIZABLE, },
++	.bar[BAR_3] = { .type = BAR_RESIZABLE, },
+ 	.bar[BAR_4] = { .type = BAR_RESERVED, },
+-	.bar[BAR_5] = { .type = BAR_FIXED, .fixed_size = SZ_1M, },
++	.bar[BAR_5] = { .type = BAR_RESIZABLE, },
+ };
+ 
+ static const struct pci_epc_features *
+-- 
+2.48.1
+

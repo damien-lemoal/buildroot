@@ -1,0 +1,333 @@
+From 3763360b5e34c18e4d832e4555337243c5aece0d Mon Sep 17 00:00:00 2001
+From: Shradha Todi <shradha.t@samsung.com>
+Date: Tue, 21 Jan 2025 16:44:19 +0530
+Subject: [PATCH 12/16] PCI: dwc: Add debugfs based silicon debug support
+
+Add support to provide silicon debug interface to userspace. This set
+of debug registers are part of the RASDES feature present in DesignWare
+PCIe controllers.
+
+Signed-off-by: Shradha Todi <shradha.t@samsung.com>
+---
+ Documentation/ABI/testing/debugfs-dwc-pcie    |  13 ++
+ drivers/pci/controller/dwc/Kconfig            |  10 +
+ drivers/pci/controller/dwc/Makefile           |   1 +
+ .../controller/dwc/pcie-designware-debugfs.c  | 173 ++++++++++++++++++
+ .../pci/controller/dwc/pcie-designware-ep.c   |   5 +
+ .../pci/controller/dwc/pcie-designware-host.c |   6 +
+ drivers/pci/controller/dwc/pcie-designware.h  |  15 ++
+ 7 files changed, 223 insertions(+)
+ create mode 100644 Documentation/ABI/testing/debugfs-dwc-pcie
+ create mode 100644 drivers/pci/controller/dwc/pcie-designware-debugfs.c
+
+diff --git a/Documentation/ABI/testing/debugfs-dwc-pcie b/Documentation/ABI/testing/debugfs-dwc-pcie
+new file mode 100644
+index 000000000000..e7920ac82e38
+--- /dev/null
++++ b/Documentation/ABI/testing/debugfs-dwc-pcie
+@@ -0,0 +1,13 @@
++What:		/sys/kernel/debug/dwc_pcie_<dev>/rasdes_debug/lane_detect
++Date:		January 2025
++Contact:	Shradha Todi <shradha.t@samsung.com>
++Description:	(RW) Write the lane number to be checked for detection.	Read
++		will return whether PHY indicates receiver detection on the
++		selected lane. The default selected lane is Lane0.
++
++What:		/sys/kernel/debug/dwc_pcie_<dev>/rasdes_debug/rx_valid
++Date:		January 2025
++Contact:	Shradha Todi <shradha.t@samsung.com>
++Description:	(RW) Write the lane number to be checked as valid or invalid. Read
++		will return the status of PIPE RXVALID signal of the selected lane.
++		The default selected lane is Lane0.
+diff --git a/drivers/pci/controller/dwc/Kconfig b/drivers/pci/controller/dwc/Kconfig
+index b6d6778b0698..99ddc1e18f72 100644
+--- a/drivers/pci/controller/dwc/Kconfig
++++ b/drivers/pci/controller/dwc/Kconfig
+@@ -6,6 +6,16 @@ menu "DesignWare-based PCIe controllers"
+ config PCIE_DW
+ 	bool
+ 
++config PCIE_DW_DEBUGFS
++	default y
++	depends on DEBUG_FS
++	depends on PCIE_DW_HOST || PCIE_DW_EP
++	bool "DWC PCIe debugfs entries"
++	help
++	  Enables debugfs entries for the DW PCIe Controller. These entries
++	  make use of the RAS features in the DW controller to help in debug,
++	  error injection and statistical counters.
++
+ config PCIE_DW_HOST
+ 	bool
+ 	select PCIE_DW
+diff --git a/drivers/pci/controller/dwc/Makefile b/drivers/pci/controller/dwc/Makefile
+index a8308d9ea986..54565eedc52c 100644
+--- a/drivers/pci/controller/dwc/Makefile
++++ b/drivers/pci/controller/dwc/Makefile
+@@ -1,5 +1,6 @@
+ # SPDX-License-Identifier: GPL-2.0
+ obj-$(CONFIG_PCIE_DW) += pcie-designware.o
++obj-$(CONFIG_PCIE_DW_DEBUGFS) += pcie-designware-debugfs.o
+ obj-$(CONFIG_PCIE_DW_HOST) += pcie-designware-host.o
+ obj-$(CONFIG_PCIE_DW_EP) += pcie-designware-ep.o
+ obj-$(CONFIG_PCIE_DW_PLAT) += pcie-designware-plat.o
+diff --git a/drivers/pci/controller/dwc/pcie-designware-debugfs.c b/drivers/pci/controller/dwc/pcie-designware-debugfs.c
+new file mode 100644
+index 000000000000..907864c35ef3
+--- /dev/null
++++ b/drivers/pci/controller/dwc/pcie-designware-debugfs.c
+@@ -0,0 +1,173 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Synopsys DesignWare PCIe controller debugfs driver
++ *
++ * Copyright (C) 2025 Samsung Electronics Co., Ltd.
++ *		http://www.samsung.com
++ *
++ * Author: Shradha Todi <shradha.t@samsung.com>
++ */
++
++#include <linux/debugfs.h>
++
++#include "pcie-designware.h"
++
++#define SD_STATUS_L1LANE_REG		0xb0
++#define PIPE_RXVALID			BIT(18)
++#define PIPE_DETECT_LANE		BIT(17)
++#define LANE_SELECT			GENMASK(3, 0)
++
++#define DWC_DEBUGFS_BUF_MAX		128
++
++struct dwc_pcie_vendor_id {
++	u16 vendor_id;
++	u16 vsec_rasdes_cap_id;
++};
++
++static const struct dwc_pcie_vendor_id dwc_pcie_vendor_ids[] = {
++	{PCI_VENDOR_ID_SAMSUNG,	0x2},
++	{} /* terminator */
++};
++
++/**
++ * struct dwc_pcie_rasdes_info - Stores controller common information
++ * @ras_cap_offset: RAS DES vendor specific extended capability offset
++ * @reg_lock: Mutex used for RASDES shadow event registers
++ * @rasdes_dir: Top level debugfs directory entry
++ *
++ * Any parameter constant to all files of the debugfs hierarchy for a single controller
++ * will be stored in this struct. It is allocated and assigned to controller specific
++ * struct dw_pcie during initialization.
++ */
++struct dwc_pcie_rasdes_info {
++	u32 ras_cap_offset;
++	struct mutex reg_lock;
++	struct dentry *rasdes_dir;
++};
++
++static ssize_t lane_detect_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
++{
++	struct dw_pcie *pci = file->private_data;
++	struct dwc_pcie_rasdes_info *rinfo = pci->rasdes_info;
++	char debugfs_buf[DWC_DEBUGFS_BUF_MAX];
++	ssize_t off = 0;
++	u32 val;
++
++	val = dw_pcie_readl_dbi(pci, rinfo->ras_cap_offset + SD_STATUS_L1LANE_REG);
++	val = FIELD_GET(PIPE_DETECT_LANE, val);
++	if (val)
++		off += scnprintf(debugfs_buf, DWC_DEBUGFS_BUF_MAX - off, "Lane Detected\n");
++	else
++		off += scnprintf(debugfs_buf, DWC_DEBUGFS_BUF_MAX - off, "Lane Undetected\n");
++
++	return simple_read_from_buffer(buf, count, ppos, debugfs_buf, off);
++}
++
++static ssize_t lane_detect_write(struct file *file, const char __user *buf,
++				 size_t count, loff_t *ppos)
++{
++	struct dw_pcie *pci = file->private_data;
++	struct dwc_pcie_rasdes_info *rinfo = pci->rasdes_info;
++	u32 lane, val;
++
++	val = kstrtou32_from_user(buf, count, 0, &lane);
++	if (val)
++		return val;
++
++	val = dw_pcie_readl_dbi(pci, rinfo->ras_cap_offset + SD_STATUS_L1LANE_REG);
++	val &= ~(LANE_SELECT);
++	val |= FIELD_PREP(LANE_SELECT, lane);
++	dw_pcie_writel_dbi(pci, rinfo->ras_cap_offset + SD_STATUS_L1LANE_REG, val);
++
++	return count;
++}
++
++static ssize_t rx_valid_read(struct file *file, char __user *buf, size_t count, loff_t *ppos)
++{
++	struct dw_pcie *pci = file->private_data;
++	struct dwc_pcie_rasdes_info *rinfo = pci->rasdes_info;
++	char debugfs_buf[DWC_DEBUGFS_BUF_MAX];
++	ssize_t off = 0;
++	u32 val;
++
++	val = dw_pcie_readl_dbi(pci, rinfo->ras_cap_offset + SD_STATUS_L1LANE_REG);
++	val = FIELD_GET(PIPE_RXVALID, val);
++	if (val)
++		off += scnprintf(debugfs_buf, DWC_DEBUGFS_BUF_MAX - off, "RX Valid\n");
++	else
++		off += scnprintf(debugfs_buf, DWC_DEBUGFS_BUF_MAX - off, "RX Invalid\n");
++
++	return simple_read_from_buffer(buf, count, ppos, debugfs_buf, off);
++}
++
++static ssize_t rx_valid_write(struct file *file, const char __user *buf, size_t count, loff_t *ppos)
++{
++	return lane_detect_write(file, buf, count, ppos);
++}
++
++#define dwc_debugfs_create(name)			\
++debugfs_create_file(#name, 0644, rasdes_debug, pci,	\
++			&dbg_ ## name ## _fops)
++
++#define DWC_DEBUGFS_FOPS(name)					\
++static const struct file_operations dbg_ ## name ## _fops = {	\
++	.open = simple_open,				\
++	.read = name ## _read,				\
++	.write = name ## _write				\
++}
++
++DWC_DEBUGFS_FOPS(lane_detect);
++DWC_DEBUGFS_FOPS(rx_valid);
++
++void dwc_pcie_rasdes_debugfs_deinit(struct dw_pcie *pci)
++{
++	struct dwc_pcie_rasdes_info *rinfo = pci->rasdes_info;
++
++	debugfs_remove_recursive(rinfo->rasdes_dir);
++	mutex_destroy(&rinfo->reg_lock);
++}
++
++int dwc_pcie_rasdes_debugfs_init(struct dw_pcie *pci)
++{
++	struct dentry *dir, *rasdes_debug;
++	struct dwc_pcie_rasdes_info *rasdes_info;
++	const struct dwc_pcie_vendor_id *vid;
++	char dirname[DWC_DEBUGFS_BUF_MAX];
++	struct device *dev = pci->dev;
++	int ras_cap;
++
++	for (vid = dwc_pcie_vendor_ids; vid->vendor_id; vid++) {
++		ras_cap = dw_pcie_find_vsec_capability(pci, vid->vendor_id,
++							vid->vsec_rasdes_cap_id);
++		if (ras_cap)
++			break;
++	}
++	if (!ras_cap) {
++		dev_dbg(dev, "No RASDES capability available\n");
++		return -ENODEV;
++	}
++
++	rasdes_info = devm_kzalloc(dev, sizeof(*rasdes_info), GFP_KERNEL);
++	if (!rasdes_info)
++		return -ENOMEM;
++
++	/* Create main directory for each platform driver */
++	snprintf(dirname, DWC_DEBUGFS_BUF_MAX, "dwc_pcie_%s", dev_name(dev));
++	dir = debugfs_create_dir(dirname, NULL);
++	if (IS_ERR(dir))
++		return PTR_ERR(dir);
++
++	/* Create subdirectories for Debug, Error injection, Statistics */
++	rasdes_debug = debugfs_create_dir("rasdes_debug", dir);
++
++	mutex_init(&rasdes_info->reg_lock);
++	rasdes_info->ras_cap_offset = ras_cap;
++	rasdes_info->rasdes_dir = dir;
++	pci->rasdes_info = rasdes_info;
++
++	/* Create debugfs files for Debug subdirectory */
++	dwc_debugfs_create(lane_detect);
++	dwc_debugfs_create(rx_valid);
++
++	return 0;
++}
+diff --git a/drivers/pci/controller/dwc/pcie-designware-ep.c b/drivers/pci/controller/dwc/pcie-designware-ep.c
+index 72418160e658..6639e31619cf 100644
+--- a/drivers/pci/controller/dwc/pcie-designware-ep.c
++++ b/drivers/pci/controller/dwc/pcie-designware-ep.c
+@@ -814,6 +814,7 @@ void dw_pcie_ep_cleanup(struct dw_pcie_ep *ep)
+ {
+ 	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
+ 
++	dwc_pcie_rasdes_debugfs_deinit(pci);
+ 	dw_pcie_edma_remove(pci);
+ }
+ EXPORT_SYMBOL_GPL(dw_pcie_ep_cleanup);
+@@ -989,6 +990,10 @@ int dw_pcie_ep_init_registers(struct dw_pcie_ep *ep)
+ 
+ 	dw_pcie_ep_init_non_sticky_registers(pci);
+ 
++	ret = dwc_pcie_rasdes_debugfs_init(pci);
++	if (ret)
++		goto err_remove_edma;
++
+ 	return 0;
+ 
+ err_remove_edma:
+diff --git a/drivers/pci/controller/dwc/pcie-designware-host.c b/drivers/pci/controller/dwc/pcie-designware-host.c
+index ffaded8f2df7..49caf0243e00 100644
+--- a/drivers/pci/controller/dwc/pcie-designware-host.c
++++ b/drivers/pci/controller/dwc/pcie-designware-host.c
+@@ -524,6 +524,10 @@ int dw_pcie_host_init(struct dw_pcie_rp *pp)
+ 	if (ret)
+ 		goto err_remove_edma;
+ 
++	ret = dwc_pcie_rasdes_debugfs_init(pci);
++	if (ret)
++		goto err_remove_edma;
++
+ 	if (!dw_pcie_link_up(pci)) {
+ 		ret = dw_pcie_start_link(pci);
+ 		if (ret)
+@@ -577,6 +581,8 @@ void dw_pcie_host_deinit(struct dw_pcie_rp *pp)
+ 
+ 	dw_pcie_stop_link(pci);
+ 
++	dwc_pcie_rasdes_debugfs_deinit(pci);
++
+ 	dw_pcie_edma_remove(pci);
+ 
+ 	if (pp->has_msi_ctrl)
+diff --git a/drivers/pci/controller/dwc/pcie-designware.h b/drivers/pci/controller/dwc/pcie-designware.h
+index fa176ebbf7fc..16d23b35bb72 100644
+--- a/drivers/pci/controller/dwc/pcie-designware.h
++++ b/drivers/pci/controller/dwc/pcie-designware.h
+@@ -465,6 +465,7 @@ struct dw_pcie {
+ 	struct reset_control_bulk_data	core_rsts[DW_PCIE_NUM_CORE_RSTS];
+ 	struct gpio_desc		*pe_rst;
+ 	bool			suspended;
++	void			*rasdes_info;
+ };
+ 
+ #define to_dw_pcie_from_pp(port) container_of((port), struct dw_pcie, pp)
+@@ -807,4 +808,18 @@ dw_pcie_ep_get_func_from_ep(struct dw_pcie_ep *ep, u8 func_no)
+ 	return NULL;
+ }
+ #endif
++
++#ifdef CONFIG_PCIE_DW_DEBUGFS
++int dwc_pcie_rasdes_debugfs_init(struct dw_pcie *pci);
++void dwc_pcie_rasdes_debugfs_deinit(struct dw_pcie *pci);
++#else
++static inline int dwc_pcie_rasdes_debugfs_init(struct dw_pcie *pci)
++{
++	return 0;
++}
++static inline void dwc_pcie_rasdes_debugfs_deinit(struct dw_pcie *pci)
++{
++}
++#endif
++
+ #endif /* _PCIE_DESIGNWARE_H */
+-- 
+2.48.1
+

@@ -1,0 +1,43 @@
+From 999d3424e073bf081d4b77bba6411d8de17780ef Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <cassel@kernel.org>
+Date: Fri, 31 Jan 2025 19:29:54 +0100
+Subject: [PATCH 05/16] PCI: keystone: Describe Resizable BARs as Resizable
+ BARs
+
+Looking at "12.2.2.4.15 PCIe Subsystem BAR Configuration" in the
+AM65x TRM:
+https://www.ti.com/lit/ug/spruid7e/spruid7e.pdf
+
+We can see that BAR2 and BAR5 are not Fixed BARs, but actually Resizable
+BARs.
+
+Now when we actually have support for Resizable BARs, let's configure
+these BARs as such.
+
+Reviewed-by: Manivannan Sadhasivam <manivannan.sadhasivam@linaro.org>
+Signed-off-by: Niklas Cassel <cassel@kernel.org>
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/dwc/pci-keystone.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pci-keystone.c b/drivers/pci/controller/dwc/pci-keystone.c
+index 63bd5003da45..fdc610ec7e5e 100644
+--- a/drivers/pci/controller/dwc/pci-keystone.c
++++ b/drivers/pci/controller/dwc/pci-keystone.c
+@@ -966,10 +966,10 @@ static const struct pci_epc_features ks_pcie_am654_epc_features = {
+ 	.msix_capable = true,
+ 	.bar[BAR_0] = { .type = BAR_RESERVED, },
+ 	.bar[BAR_1] = { .type = BAR_RESERVED, },
+-	.bar[BAR_2] = { .type = BAR_FIXED, .fixed_size = SZ_1M, },
++	.bar[BAR_2] = { .type = BAR_RESIZABLE, },
+ 	.bar[BAR_3] = { .type = BAR_FIXED, .fixed_size = SZ_64K, },
+ 	.bar[BAR_4] = { .type = BAR_FIXED, .fixed_size = 256, },
+-	.bar[BAR_5] = { .type = BAR_FIXED, .fixed_size = SZ_1M, },
++	.bar[BAR_5] = { .type = BAR_RESIZABLE, },
+ 	.align = SZ_1M,
+ };
+ 
+-- 
+2.48.1
+

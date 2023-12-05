@@ -1,0 +1,28 @@
+From 968b7f26025b0d5032d9dfee2e1ee3d96db90494 Mon Sep 17 00:00:00 2001
+From: Niklas Cassel <cassel@kernel.org>
+Date: Thu, 13 Feb 2025 15:46:49 +0100
+Subject: [PATCH 16/16] PCI: dwc: Add rockchip to the allowed vendor list
+
+Signed-off-by: Niklas Cassel <cassel@kernel.org>
+---
+ drivers/pci/controller/dwc/pcie-designware-debugfs.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/pci/controller/dwc/pcie-designware-debugfs.c b/drivers/pci/controller/dwc/pcie-designware-debugfs.c
+index b649aa271f02..9121964b6031 100644
+--- a/drivers/pci/controller/dwc/pcie-designware-debugfs.c
++++ b/drivers/pci/controller/dwc/pcie-designware-debugfs.c
+@@ -49,8 +49,10 @@ struct dwc_pcie_vendor_id {
+ 	u16 vsec_rasdes_cap_id;
+ };
+ 
++#define PCI_VENDOR_ID_ROCKCHIP			0x1d87
+ static const struct dwc_pcie_vendor_id dwc_pcie_vendor_ids[] = {
+ 	{PCI_VENDOR_ID_SAMSUNG,	0x2},
++	{PCI_VENDOR_ID_ROCKCHIP,	0x2},
+ 	{} /* terminator */
+ };
+ 
+-- 
+2.48.1
+

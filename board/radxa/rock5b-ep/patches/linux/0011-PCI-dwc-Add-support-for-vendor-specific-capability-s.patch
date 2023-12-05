@@ -1,0 +1,60 @@
+From 643f10c22fd81e0529740d954cf79c1615b54a91 Mon Sep 17 00:00:00 2001
+From: Shradha Todi <shradha.t@samsung.com>
+Date: Tue, 21 Jan 2025 16:44:18 +0530
+Subject: [PATCH 11/16] PCI: dwc: Add support for vendor specific capability
+ search
+
+Add vendor specific extended configuration space capability search API
+using struct dw_pcie pointer for DW controllers.
+
+Signed-off-by: Shradha Todi <shradha.t@samsung.com>
+---
+ drivers/pci/controller/dwc/pcie-designware.c | 19 +++++++++++++++++++
+ drivers/pci/controller/dwc/pcie-designware.h |  1 +
+ 2 files changed, 20 insertions(+)
+
+diff --git a/drivers/pci/controller/dwc/pcie-designware.c b/drivers/pci/controller/dwc/pcie-designware.c
+index 145e7f579072..7de8ad855211 100644
+--- a/drivers/pci/controller/dwc/pcie-designware.c
++++ b/drivers/pci/controller/dwc/pcie-designware.c
+@@ -277,6 +277,25 @@ static u16 dw_pcie_find_next_ext_capability(struct dw_pcie *pci, u16 start,
+ 	return 0;
+ }
+ 
++u16 dw_pcie_find_vsec_capability(struct dw_pcie *pci, u16 vendor_id, u16 vsec_cap)
++{
++	u16 vsec = 0;
++	u32 header;
++
++	if (vendor_id != dw_pcie_readw_dbi(pci, PCI_VENDOR_ID))
++		return 0;
++
++	while ((vsec = dw_pcie_find_next_ext_capability(pci, vsec,
++					PCI_EXT_CAP_ID_VNDR))) {
++		header = dw_pcie_readl_dbi(pci, vsec + PCI_VNDR_HEADER);
++		if (PCI_VNDR_HEADER_ID(header) == vsec_cap)
++			return vsec;
++	}
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(dw_pcie_find_vsec_capability);
++
+ u16 dw_pcie_find_ext_capability(struct dw_pcie *pci, u8 cap)
+ {
+ 	return dw_pcie_find_next_ext_capability(pci, 0, cap);
+diff --git a/drivers/pci/controller/dwc/pcie-designware.h b/drivers/pci/controller/dwc/pcie-designware.h
+index 501d9ddfea16..fa176ebbf7fc 100644
+--- a/drivers/pci/controller/dwc/pcie-designware.h
++++ b/drivers/pci/controller/dwc/pcie-designware.h
+@@ -478,6 +478,7 @@ void dw_pcie_version_detect(struct dw_pcie *pci);
+ 
+ u8 dw_pcie_find_capability(struct dw_pcie *pci, u8 cap);
+ u16 dw_pcie_find_ext_capability(struct dw_pcie *pci, u8 cap);
++u16 dw_pcie_find_vsec_capability(struct dw_pcie *pci, u16 vendor_id, u16 vsec_cap);
+ 
+ int dw_pcie_read(void __iomem *addr, int size, u32 *val);
+ int dw_pcie_write(void __iomem *addr, int size, u32 val);
+-- 
+2.48.1
+

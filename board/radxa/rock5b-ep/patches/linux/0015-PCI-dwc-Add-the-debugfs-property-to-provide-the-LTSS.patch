@@ -1,0 +1,321 @@
+From 42a4a919979480a2f5700614fa3db806f64a537f Mon Sep 17 00:00:00 2001
+From: Hans Zhang <18255117159@163.com>
+Date: Thu, 6 Feb 2025 23:13:43 +0800
+Subject: [PATCH 15/16] PCI: dwc: Add the debugfs property to provide the LTSSM
+ status of the PCIe link
+
+Add the debugfs property to provide a view of the current link's LTSSM
+status from the root port device.
+
+  /sys/kernel/debug/dwc_pcie_<dev>/ltssm_status
+
+Signed-off-by: Hans Zhang <18255117159@163.com>
+---
+ Documentation/ABI/testing/debugfs-dwc-pcie    |  6 ++
+ .../controller/dwc/pcie-designware-debugfs.c  | 69 ++++++++++++++++---
+ .../pci/controller/dwc/pcie-designware-ep.c   |  4 +-
+ .../pci/controller/dwc/pcie-designware-host.c | 54 ++++++++++++++-
+ drivers/pci/controller/dwc/pcie-designware.h  | 42 +++++++++--
+ 5 files changed, 157 insertions(+), 18 deletions(-)
+
+diff --git a/Documentation/ABI/testing/debugfs-dwc-pcie b/Documentation/ABI/testing/debugfs-dwc-pcie
+index d3f84f46b400..bf0116012175 100644
+--- a/Documentation/ABI/testing/debugfs-dwc-pcie
++++ b/Documentation/ABI/testing/debugfs-dwc-pcie
+@@ -142,3 +142,9 @@ Description:	(RW) Some lanes in the event list are lane specific events. These i
+ 		events 1) - 11) and 34) - 35).
+ 		Write lane number for which counter needs to be enabled/disabled/dumped.
+ 		Read will return the current selected lane number. Lane0 is selected by default.
++
++What:		/sys/kernel/debug/dwc_pcie_<dev>/ltssm_status
++Date:		February 2025
++Contact:	Hans Zhang <18255117159@163.com>
++Description:	(RO) Read will return the current value of the PCIe link status raw value and
++		string status.
+diff --git a/drivers/pci/controller/dwc/pcie-designware-debugfs.c b/drivers/pci/controller/dwc/pcie-designware-debugfs.c
+index 5d883b13be84..b649aa271f02 100644
+--- a/drivers/pci/controller/dwc/pcie-designware-debugfs.c
++++ b/drivers/pci/controller/dwc/pcie-designware-debugfs.c
+@@ -465,7 +465,7 @@ static const struct file_operations dwc_pcie_counter_value_ops = {
+ 	.read = counter_value_read,
+ };
+ 
+-void dwc_pcie_rasdes_debugfs_deinit(struct dw_pcie *pci)
++static void dwc_pcie_rasdes_debugfs_deinit(struct dw_pcie *pci)
+ {
+ 	struct dwc_pcie_rasdes_info *rinfo = pci->rasdes_info;
+ 
+@@ -473,13 +473,12 @@ void dwc_pcie_rasdes_debugfs_deinit(struct dw_pcie *pci)
+ 	mutex_destroy(&rinfo->reg_lock);
+ }
+ 
+-int dwc_pcie_rasdes_debugfs_init(struct dw_pcie *pci)
++static int dwc_pcie_rasdes_debugfs_init(struct dw_pcie *pci, struct dentry *dir)
+ {
+-	struct dentry *dir, *rasdes_debug, *rasdes_err_inj, *rasdes_event_counter, *rasdes_events;
++	struct dentry *rasdes_debug, *rasdes_err_inj, *rasdes_event_counter, *rasdes_events;
+ 	struct dwc_pcie_rasdes_info *rasdes_info;
+ 	struct dwc_pcie_rasdes_priv *priv_tmp;
+ 	const struct dwc_pcie_vendor_id *vid;
+-	char dirname[DWC_DEBUGFS_BUF_MAX];
+ 	struct device *dev = pci->dev;
+ 	int ras_cap, i, ret;
+ 
+@@ -498,12 +497,6 @@ int dwc_pcie_rasdes_debugfs_init(struct dw_pcie *pci)
+ 	if (!rasdes_info)
+ 		return -ENOMEM;
+ 
+-	/* Create main directory for each platform driver */
+-	snprintf(dirname, DWC_DEBUGFS_BUF_MAX, "dwc_pcie_%s", dev_name(dev));
+-	dir = debugfs_create_dir(dirname, NULL);
+-	if (IS_ERR(dir))
+-		return PTR_ERR(dir);
+-
+ 	/* Create subdirectories for Debug, Error injection, Statistics */
+ 	rasdes_debug = debugfs_create_dir("rasdes_debug", dir);
+ 	rasdes_err_inj = debugfs_create_dir("rasdes_err_inj", dir);
+@@ -559,3 +552,59 @@ int dwc_pcie_rasdes_debugfs_init(struct dw_pcie *pci)
+ 	dwc_pcie_rasdes_debugfs_deinit(pci);
+ 	return ret;
+ }
++
++static int dwc_pcie_ltssm_status_show(struct seq_file *s, void *v)
++{
++	struct dw_pcie *pci = s->private;
++	enum dw_pcie_ltssm val;
++
++	val = dw_pcie_get_ltssm(pci);
++	seq_printf(s, "%s (0x%02x)\n", dw_ltssm_sts_string(val), val);
++
++	return 0;
++}
++
++static int dwc_pcie_ltssm_status_open(struct inode *inode, struct file *file)
++{
++	return single_open(file, dwc_pcie_ltssm_status_show, inode->i_private);
++}
++
++static const struct file_operations dwc_pcie_ltssm_status_ops = {
++	.open = dwc_pcie_ltssm_status_open,
++	.read = seq_read,
++};
++
++static void dwc_pcie_ltssm_debugfs_init(struct dw_pcie *pci, struct dentry *dir)
++{
++	debugfs_create_file("ltssm_status", 0444, dir, pci,
++			    &dwc_pcie_ltssm_status_ops);
++}
++
++void dwc_pcie_debugfs_deinit(struct dw_pcie *pci)
++{
++	dwc_pcie_rasdes_debugfs_deinit(pci);
++	debugfs_remove_recursive(pci->debugfs);
++}
++
++int dwc_pcie_debugfs_init(struct dw_pcie *pci)
++{
++	char dirname[DWC_DEBUGFS_BUF_MAX];
++	struct device *dev = pci->dev;
++	struct dentry *dir;
++	int ret;
++
++	/* Create main directory for each platform driver */
++	snprintf(dirname, DWC_DEBUGFS_BUF_MAX, "dwc_pcie_%s", dev_name(dev));
++	dir = debugfs_create_dir(dirname, NULL);
++	if (IS_ERR(dir))
++		return PTR_ERR(dir);
++
++	pci->debugfs = dir;
++	ret = dwc_pcie_rasdes_debugfs_init(pci, dir);
++	if (ret)
++		dev_dbg(dev, "rasdes debugfs init failed\n");
++
++	dwc_pcie_ltssm_debugfs_init(pci, dir);
++
++	return 0;
++}
+diff --git a/drivers/pci/controller/dwc/pcie-designware-ep.c b/drivers/pci/controller/dwc/pcie-designware-ep.c
+index 6639e31619cf..f9d7f3f989ad 100644
+--- a/drivers/pci/controller/dwc/pcie-designware-ep.c
++++ b/drivers/pci/controller/dwc/pcie-designware-ep.c
+@@ -814,7 +814,7 @@ void dw_pcie_ep_cleanup(struct dw_pcie_ep *ep)
+ {
+ 	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
+ 
+-	dwc_pcie_rasdes_debugfs_deinit(pci);
++	dwc_pcie_debugfs_deinit(pci);
+ 	dw_pcie_edma_remove(pci);
+ }
+ EXPORT_SYMBOL_GPL(dw_pcie_ep_cleanup);
+@@ -990,7 +990,7 @@ int dw_pcie_ep_init_registers(struct dw_pcie_ep *ep)
+ 
+ 	dw_pcie_ep_init_non_sticky_registers(pci);
+ 
+-	ret = dwc_pcie_rasdes_debugfs_init(pci);
++	ret = dwc_pcie_debugfs_init(pci);
+ 	if (ret)
+ 		goto err_remove_edma;
+ 
+diff --git a/drivers/pci/controller/dwc/pcie-designware-host.c b/drivers/pci/controller/dwc/pcie-designware-host.c
+index 49caf0243e00..3f23996b06da 100644
+--- a/drivers/pci/controller/dwc/pcie-designware-host.c
++++ b/drivers/pci/controller/dwc/pcie-designware-host.c
+@@ -418,6 +418,56 @@ static void dw_pcie_host_request_msg_tlp_res(struct dw_pcie_rp *pp)
+ 	}
+ }
+ 
++char *dw_ltssm_sts_string(enum dw_pcie_ltssm ltssm)
++{
++	char *str;
++
++	switch (ltssm) {
++#define DW_PCIE_LTSSM_NAME(n) case n: str = #n; break
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_DETECT_QUIET);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_DETECT_ACT);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_POLL_ACTIVE);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_POLL_COMPLIANCE);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_POLL_CONFIG);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_PRE_DETECT_QUIET);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_DETECT_WAIT);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_CFG_LINKWD_START);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_CFG_LINKWD_ACEPT);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_CFG_LANENUM_WAI);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_CFG_LANENUM_ACEPT);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_CFG_COMPLETE);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_CFG_IDLE);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_RCVRY_LOCK);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_RCVRY_SPEED);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_RCVRY_RCVRCFG);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_RCVRY_IDLE);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_L0);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_L0S);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_L123_SEND_EIDLE);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_L1_IDLE);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_L2_IDLE);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_L2_WAKE);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_DISABLED_ENTRY);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_DISABLED_IDLE);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_DISABLED);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_LPBK_ENTRY);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_LPBK_ACTIVE);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_LPBK_EXIT);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_LPBK_EXIT_TIMEOUT);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_HOT_RESET_ENTRY);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_HOT_RESET);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_RCVRY_EQ0);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_RCVRY_EQ1);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_RCVRY_EQ2);
++	DW_PCIE_LTSSM_NAME(DW_PCIE_LTSSM_RCVRY_EQ3);
++	default:
++		str = "DW_PCIE_LTSSM_UNKNOWN";
++		break;
++	}
++
++	return str + strlen("DW_PCIE_LTSSM_");
++}
++
+ int dw_pcie_host_init(struct dw_pcie_rp *pp)
+ {
+ 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
+@@ -524,7 +574,7 @@ int dw_pcie_host_init(struct dw_pcie_rp *pp)
+ 	if (ret)
+ 		goto err_remove_edma;
+ 
+-	ret = dwc_pcie_rasdes_debugfs_init(pci);
++	ret = dwc_pcie_debugfs_init(pci);
+ 	if (ret)
+ 		goto err_remove_edma;
+ 
+@@ -581,7 +631,7 @@ void dw_pcie_host_deinit(struct dw_pcie_rp *pp)
+ 
+ 	dw_pcie_stop_link(pci);
+ 
+-	dwc_pcie_rasdes_debugfs_deinit(pci);
++	dwc_pcie_debugfs_deinit(pci);
+ 
+ 	dw_pcie_edma_remove(pci);
+ 
+diff --git a/drivers/pci/controller/dwc/pcie-designware.h b/drivers/pci/controller/dwc/pcie-designware.h
+index 16d23b35bb72..40e5d74fc7ef 100644
+--- a/drivers/pci/controller/dwc/pcie-designware.h
++++ b/drivers/pci/controller/dwc/pcie-designware.h
+@@ -330,9 +330,40 @@ enum dw_pcie_ltssm {
+ 	/* Need to align with PCIE_PORT_DEBUG0 bits 0:5 */
+ 	DW_PCIE_LTSSM_DETECT_QUIET = 0x0,
+ 	DW_PCIE_LTSSM_DETECT_ACT = 0x1,
++	DW_PCIE_LTSSM_POLL_ACTIVE = 0x2,
++	DW_PCIE_LTSSM_POLL_COMPLIANCE = 0x3,
++	DW_PCIE_LTSSM_POLL_CONFIG = 0x4,
++	DW_PCIE_LTSSM_PRE_DETECT_QUIET = 0x5,
+ 	DW_PCIE_LTSSM_DETECT_WAIT = 0x6,
++	DW_PCIE_LTSSM_CFG_LINKWD_START = 0x7,
++	DW_PCIE_LTSSM_CFG_LINKWD_ACEPT = 0x8,
++	DW_PCIE_LTSSM_CFG_LANENUM_WAI = 0x9,
++	DW_PCIE_LTSSM_CFG_LANENUM_ACEPT = 0xa,
++	DW_PCIE_LTSSM_CFG_COMPLETE = 0xb,
++	DW_PCIE_LTSSM_CFG_IDLE = 0xc,
++	DW_PCIE_LTSSM_RCVRY_LOCK = 0xd,
++	DW_PCIE_LTSSM_RCVRY_SPEED = 0xe,
++	DW_PCIE_LTSSM_RCVRY_RCVRCFG = 0xf,
++	DW_PCIE_LTSSM_RCVRY_IDLE = 0x10,
+ 	DW_PCIE_LTSSM_L0 = 0x11,
++	DW_PCIE_LTSSM_L0S = 0x12,
++	DW_PCIE_LTSSM_L123_SEND_EIDLE = 0x13,
++	DW_PCIE_LTSSM_L1_IDLE = 0x14,
+ 	DW_PCIE_LTSSM_L2_IDLE = 0x15,
++	DW_PCIE_LTSSM_L2_WAKE = 0x16,
++	DW_PCIE_LTSSM_DISABLED_ENTRY = 0x17,
++	DW_PCIE_LTSSM_DISABLED_IDLE = 0x18,
++	DW_PCIE_LTSSM_DISABLED = 0x19,
++	DW_PCIE_LTSSM_LPBK_ENTRY = 0x1a,
++	DW_PCIE_LTSSM_LPBK_ACTIVE = 0x1b,
++	DW_PCIE_LTSSM_LPBK_EXIT = 0x1c,
++	DW_PCIE_LTSSM_LPBK_EXIT_TIMEOUT = 0x1d,
++	DW_PCIE_LTSSM_HOT_RESET_ENTRY = 0x1e,
++	DW_PCIE_LTSSM_HOT_RESET = 0x1f,
++	DW_PCIE_LTSSM_RCVRY_EQ0 = 0x20,
++	DW_PCIE_LTSSM_RCVRY_EQ1 = 0x21,
++	DW_PCIE_LTSSM_RCVRY_EQ2 = 0x22,
++	DW_PCIE_LTSSM_RCVRY_EQ3 = 0x23,
+ 
+ 	DW_PCIE_LTSSM_UNKNOWN = 0xFFFFFFFF,
+ };
+@@ -465,6 +496,7 @@ struct dw_pcie {
+ 	struct reset_control_bulk_data	core_rsts[DW_PCIE_NUM_CORE_RSTS];
+ 	struct gpio_desc		*pe_rst;
+ 	bool			suspended;
++	struct dentry		*debugfs;
+ 	void			*rasdes_info;
+ };
+ 
+@@ -678,6 +710,8 @@ static inline enum dw_pcie_ltssm dw_pcie_get_ltssm(struct dw_pcie *pci)
+ 	return (enum dw_pcie_ltssm)FIELD_GET(PORT_LOGIC_LTSSM_STATE_MASK, val);
+ }
+ 
++char *dw_ltssm_sts_string(enum dw_pcie_ltssm ltssm);
++
+ #ifdef CONFIG_PCIE_DW_HOST
+ int dw_pcie_suspend_noirq(struct dw_pcie *pci);
+ int dw_pcie_resume_noirq(struct dw_pcie *pci);
+@@ -810,14 +844,14 @@ dw_pcie_ep_get_func_from_ep(struct dw_pcie_ep *ep, u8 func_no)
+ #endif
+ 
+ #ifdef CONFIG_PCIE_DW_DEBUGFS
+-int dwc_pcie_rasdes_debugfs_init(struct dw_pcie *pci);
+-void dwc_pcie_rasdes_debugfs_deinit(struct dw_pcie *pci);
++int dwc_pcie_debugfs_init(struct dw_pcie *pci);
++void dwc_pcie_debugfs_deinit(struct dw_pcie *pci);
+ #else
+-static inline int dwc_pcie_rasdes_debugfs_init(struct dw_pcie *pci)
++static inline int dwc_pcie_debugfs_init(struct dw_pcie *pci)
+ {
+ 	return 0;
+ }
+-static inline void dwc_pcie_rasdes_debugfs_deinit(struct dw_pcie *pci)
++static inline void dwc_pcie_debugfs_deinit(struct dw_pcie *pci)
+ {
+ }
+ #endif
+-- 
+2.48.1
+

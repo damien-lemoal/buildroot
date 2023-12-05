@@ -1,0 +1,355 @@
+#!/bin/sh
+
+cmd="$(basename "$0")"
+
+FUNC="nvmepf.0"
+PORTID="1"
+NSID="1"
+SUBSYSNQN="${FUNC}.nqn"
+VID=0x1b96
+SSVID=${VID}
+DEVID=0xBEEF
+MODEL="Linux-pci-epf"
+
+nrioq=4
+#nrioq=$(nproc)
+debug_pci=0
+debug_nvme=0
+debug_epf=0
+mdts=""
+mqes="128"
+rot=0
+
+nsdev=""
+sched=""
+
+function exit_failed()
+{
+	echo "$1"
+	exit 1
+}
+
+function usage()
+{
+	echo "Usage:"
+	echo "    ${cmd} [-h | --help]"
+	echo "    ${cmd} [options] start"
+	echo "    ${cmd} stop"
+	echo "Start command options:"
+	echo "  --debug-pci        : Turn on pci controller debug messages"
+	echo "  --debug-nvme       : Turn on nvme target core debug messages"
+	echo "  --debug-epf        : Turn on nvme PCI endpoint target debug messages"
+	echo "  --debug            : Turn on epf, nvme and pci kernel debug messages"
+	echo "  --mdts <size (KB)> : Set maximum command transfer size"
+	echo "                       (default 128 KB)"
+	echo "  --mqes <num>       : Set maximum queue size"
+	echo "  --buffered-io      : Used buffered IOs on the target"
+	echo "                       (default: no)."
+	echo "  --nrioq <num>      : Set maximum number of I/O queues"
+	echo "                       (default: number of CPUs)."
+	echo "  --nsdev <path>     : Use file or block device for the namespace"
+	echo "                       (default: use null_blk and /dev/nullb0)."
+	echo "  --sched <sched>    : Use the <sched> I/O scheduler for the NS device"
+	echo "  --rot              : Create a null_blk device with rotational=1"
+}
+
+# Check options
+while [ "${1#-}" != "$1" ]; do
+	case "$1" in
+	-h | --help)
+		usage
+		exit 0
+		;;
+	--debug-epf)
+		debug_epf=1
+		;;
+	--debug-nvme)
+		debug_nvme=1
+		;;
+	--debug-pci)
+		debug_pci=1
+		;;
+	--debug)
+		debug_pci=1
+		debug_nvme=1
+		debug_epf=1
+		;;
+	--mdts)
+		shift
+		mdts="$1"
+		;;
+	--mqes)
+		shift
+		mqes="$1"
+		;;
+	--buffered-io)
+		bufferedio=1
+		;;
+	--nrioq)
+		shift
+		nrioq=$1
+		;;
+	--nsdev)
+		shift
+		nsdev="$1"
+		;;
+	--sched)
+		shift
+		sched="$1"
+		;;
+	--rot)
+		rot="1"
+		;;
+	-*)
+		echo "Unknow option $1"
+		exit 1
+		;;
+	esac
+	shift
+done
+
+if [ "$1" == "" ]; then
+	usage
+	exit 1
+fi
+
+if [ ${nrioq} -le 0 ]; then
+	echo "Invalid maximum number of I/O queues."
+	exit 1
+fi
+
+if [ "${nsdev}" == "" ]; then
+	modprobe null_blk \
+		nr_devices=1 \
+		submit_queues="$(nproc --all)" \
+		gb=1024 max_sectors=2048 rotational=${rot} || \
+		exit_failed "Create null_blk failed"
+	nsdev="/dev/nullb0"
+fi
+
+if [ "${sched}" != "" ]; then
+	modprobe ${sched} || \
+                exit_failed "Load ${sched} failed"
+        echo "${sched}" > /sys/block/$(basename ${nsdev})/queue/scheduler || \
+                exit_failed "Set ${sched} failed"
+fi
+
+action="$1"
+
+function nvme_setup_subsys()
+{
+	echo "Creating NVMe subsystem ${SUBSYSNQN}, target ${nsdev}"
+
+	echo "    Loading nvmet_pci_epf"
+	modprobe nvmet_pci_epf || \
+		exit_failed "Load nvmet_pci_epf failed"
+
+	# Create the subsystem
+	echo "    Creating subsystem ${SUBSYSNQN}"
+	cd /sys/kernel/config/nvmet/subsystems
+	mkdir "${SUBSYSNQN}"
+
+	echo -n "${MODEL}" > ${SUBSYSNQN}/attr_model || \
+		exit_failed "Set subsys model failed"
+
+	echo "${VID}" > ${SUBSYSNQN}/attr_vendor_id || \
+		exit_failed "Set subsys vid failed"
+
+	echo "${SSVID}" > ${SUBSYSNQN}/attr_subsys_vendor_id || \
+		exit_failed "Set subsys ssvid failed"
+
+	echo 1 > ${SUBSYSNQN}/attr_allow_any_host || \
+		exit_failed "Set subsys allow any host failed"
+
+	echo ${nrioq} > ${SUBSYSNQN}/attr_qid_max || \
+		exit_failed "Set subsys qid max failed"
+
+	# Create a namespace
+	echo "    Creating namespace 1"
+	nsdir="${SUBSYSNQN}/namespaces/${NSID}"
+	mkdir "${nsdir}"
+
+	echo -n "${nsdev}" > "${nsdir}/device_path" || \
+		exit_failed "Set NS device path failed"
+
+	if [ "${bufferedio}" == "1" ]; then
+		echo "1" > "${nsdir}/buffered_io" || \
+			exit_failed "Enable NS buffered IO failed"
+	else
+		echo "0" > "${nsdir}/buffered_io" || \
+			exit_failed "Disable NS buffered IO failed"
+	fi
+
+	echo 1 > "${nsdir}/enable" || \
+		exit_failed "Enable NS failed"
+
+	# Create an NVMe port
+	echo "    Creating port ${PORTID}"
+	cd /sys/kernel/config/nvmet/ports
+	mkdir "${PORTID}"
+
+	echo -n "pci" > ${PORTID}/addr_trtype || \
+		exit_failed "Set PCI transport failed"
+
+	echo "${mqes}" > ${PORTID}/param_max_queue_size || \
+		exit_failed "Set MQES failed"
+
+	ln -s /sys/kernel/config/nvmet/subsystems/${SUBSYSNQN} \
+		/sys/kernel/config/nvmet/ports/${PORTID}/subsystems/${SUBSYSNQN}
+}
+
+function nvme_teardown_subsys()
+{
+	local portdir="/sys/kernel/config/nvmet/ports/${PORTID}"
+	local subsysdir="/sys/kernel/config/nvmet/subsystems/${SUBSYSNQN}"
+	local nsdir="${subsysdir}/namespaces/${NSID}"
+
+	echo "Deleting NVMe PCI subsystem ${SUBSYSNQN}, target ${nsdev}"
+
+	if [ -d "${nsdir}" ]; then
+		echo 0 > "${nsdir}/enable"
+	fi
+
+	if [ -d "${portdir}/subsystems/${SUBSYSNQN}" ]; then
+		rm /sys/kernel/config/nvmet/ports/${PORTID}/subsystems/${SUBSYSNQN} || \
+			exit_failed "Detach subsystem ${SUBSYSNQN} from port ${PORTID} failed"
+	fi
+
+	if [ -d "${portdir}" ]; then
+		rmdir /sys/kernel/config/nvmet/ports/${PORTID} || \
+			exit_failed "Delete port ${PORTID} failed"
+	fi
+
+	if [ -d "${nsdir}" ]; then
+		rmdir "${nsdir}" || \
+			exit_failed "Delete subsystem ${SUBSYSNQN} namespace ${NSID} failed"
+	fi
+
+	if [ -d "${subsysdir}" ]; then
+		rmdir "/sys/kernel/config/nvmet/subsystems/${SUBSYSNQN}" || \
+			exit_failed "Delete subsystem ${SUBSYSNQN} failed"
+	fi
+
+	rmmod nvmet_pci_epf || \
+		exit_failed "Remove nvmet_pci_epf failed"
+
+	rmmod nvmet || \
+		exit_failed "Remove nvmet failed"
+}
+
+function nvme_pci_start()
+{
+	# Enable pr_debug
+	if [ "${debug_pci}" == "1" ]; then
+		echo "Enabling pci debug"
+		echo 8 > "/proc/sys/kernel/printk"
+		echo -n 'file drivers/pci/controller/dwc/pcie-dw-rockchip.c +p;' > \
+			"/sys/kernel/debug/dynamic_debug/control"
+		echo -n 'file drivers/pci/controller/dwc/pcie-designware.c +p;' > \
+			"/sys/kernel/debug/dynamic_debug/control"
+		echo -n 'file drivers/pci/controller/dwc/pcie-designware-ep.c +p;' > \
+			"/sys/kernel/debug/dynamic_debug/control"
+	fi
+
+	if [ "${debug_nvme}" == "1" ]; then
+		echo "Enabling NVMe target debug"
+		echo 8 > "/proc/sys/kernel/printk"
+		echo -n 'module nvmet +p;' > \
+			"/sys/kernel/debug/dynamic_debug/control"
+	fi
+
+	if [ "${debug_epf}" == "1" ]; then
+		echo "Enabling NVMe PCI endpoint target debug"
+		echo 8 > "/proc/sys/kernel/printk"
+		echo -n 'file drivers/nvme/target/pci-epf.c +p;' > \
+			"/sys/kernel/debug/dynamic_debug/control"
+	fi
+
+	# Setup the subsystem.
+	nvme_setup_subsys || \
+		exit_failed "Setup NVMe PCI controller failed"
+
+	# Check controller
+	cd /sys/kernel/config/pci_ep || \
+		exit_failed "Missing PCI-EP"
+
+	controller="$(find controllers -name "*pcie*")"
+	if [ -z "${controller}" ]; then
+		exit_failed "PCI EP Controller not found"
+	fi
+
+	# Setup the NVMe endpoint function
+	echo "Creating NVMe endpoint function ${FUNC}..."
+	mkdir "functions/nvmet_pci_epf/${FUNC}" || \
+		exit_failed "Create ${FUNK} failed"
+	sleep 0.5
+
+	echo ${DEVID} > "functions/nvmet_pci_epf/${FUNC}/deviceid" || \
+		exit_failed "Set device ID failed"
+
+	echo 32 > "functions/nvmet_pci_epf/${FUNC}/msix_interrupts" || \
+		exit_failed "Set msix_interrupts failed"
+
+	echo 32 > "functions/nvmet_pci_epf/${FUNC}/msi_interrupts" || \
+		exit_failed "Set msi_interrupts failed"
+
+	echo "${PORTID}" > "functions/nvmet_pci_epf/${FUNC}/nvme/portid" || \
+		exit_failed "Set portid failed"
+
+	echo "${SUBSYSNQN}" > "functions/nvmet_pci_epf/${FUNC}/nvme/subsysnqn" || \
+		exit_failed "Set subsysnqn failed"
+
+	if [ "${mdts}" != "" ]; then
+		echo "${mdts}" > "functions/nvmet_pci_epf/${FUNC}/nvme/mdts_kb" || \
+			exit_failed "Set MDTS failed"
+	fi
+
+	# Start the NVMe endpoint function
+	echo "Attaching NVMe endpoint function to PCI EP controller ${controller}..."
+	ln -s "functions/nvmet_pci_epf/${FUNC}" "${controller}/" || \
+		exit_failed "Attach function ${FUNC} to controller failed"
+
+	echo "Starting the PCI controller..."
+	echo 1 > "${controller}/start" || \
+		exit_failed "Start the PCI EP controller failed"
+}
+
+function nvme_pci_stop()
+{
+	# Check controller
+	cd /sys/kernel/config/pci_ep || \
+		exit_failed "Missing PCI-EP"
+
+	controller="$(find controllers -name "*pcie*")"
+	if [ -z "${controller}" ]; then
+		exit_failed "PCI EP Controller not found"
+	fi
+
+	echo "Stopping the PCI controller"
+	echo 0 > "${controller}/start" || \
+		exit_failed "Stop the PCI EP controller failed"
+
+	echo "Detaching NVMe PCI endpoint function from PCI EP controller ${controller}..."
+	rm "${controller}/${FUNC}" || \
+		exit_failed "Detach function ${FUNC} from controller failed"
+
+	echo "Destroying NVMe PCI endpoint function ${FUNC}..."
+	rmdir "functions/nvmet_pci_epf/${FUNC}" || \
+		exit_failed "Remove ${FUNC} failed"
+
+	nvme_teardown_subsys
+}
+
+case "${action}" in
+start)
+	nvme_pci_start
+	;;
+stop)
+	nvme_pci_stop
+	;;
+*)
+	echo "Unknow action ${action}"
+	exit 1
+	;;
+esac
+
