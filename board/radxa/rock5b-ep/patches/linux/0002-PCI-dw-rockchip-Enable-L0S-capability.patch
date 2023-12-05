@@ -1,0 +1,77 @@
+From 309abc75db4a9680cfefbcd09c77e39e2f80dbfc Mon Sep 17 00:00:00 2001
+From: Shawn Lin <shawn.lin@rock-chips.com>
+Date: Thu, 17 Apr 2025 08:35:10 +0800
+Subject: [PATCH 2/7] PCI: dw-rockchip: Enable L0S capability
+
+L0S capability isn't enabled on all SoCs by default, so enabling it
+in order to make ASPM L0S work on Rockchip platforms. We have been
+testing it for quite a long time and found the default FTS number
+provided by DWC core doesn't work stable and make LTSSM switch between
+L0S and Recovery, leading to long exit latency, even fail to link
+sometimes. So override it to the max 255 which seems work fine under test
+for both PHYs used by Rockchip platforms.
+
+Signed-off-by: Shawn Lin <shawn.lin@rock-chips.com>
+Reviewed-by: Niklas Cassel <cassel@kernel.org>
+---
+ drivers/pci/controller/dwc/pcie-dw-rockchip.c | 23 +++++++++++++++++++
+ 1 file changed, 23 insertions(+)
+
+diff --git a/drivers/pci/controller/dwc/pcie-dw-rockchip.c b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+index 21dc99c9d95c..e4519c020ea9 100644
+--- a/drivers/pci/controller/dwc/pcie-dw-rockchip.c
++++ b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+@@ -182,6 +182,21 @@ static int rockchip_pcie_link_up(struct dw_pcie *pci)
+ 	return 0;
+ }
+ 
++static void rockchip_pcie_enable_l0s(struct dw_pcie *pci)
++{
++	u32 cap, lnkcap;
++
++	/* Enable L0S capability for all SoCs */
++	cap = dw_pcie_find_capability(pci, PCI_CAP_ID_EXP);
++	if (cap) {
++		lnkcap = dw_pcie_readl_dbi(pci, cap + PCI_EXP_LNKCAP);
++		lnkcap |= PCI_EXP_LNKCAP_ASPM_L0S;
++		dw_pcie_dbi_ro_wr_en(pci);
++		dw_pcie_writel_dbi(pci, cap + PCI_EXP_LNKCAP, lnkcap);
++		dw_pcie_dbi_ro_wr_dis(pci);
++	}
++}
++
+ static int rockchip_pcie_start_link(struct dw_pcie *pci)
+ {
+ 	struct rockchip_pcie *rockchip = to_rockchip_pcie(pci);
+@@ -231,6 +246,8 @@ static int rockchip_pcie_host_init(struct dw_pcie_rp *pp)
+ 	irq_set_chained_handler_and_data(irq, rockchip_pcie_intx_handler,
+ 					 rockchip);
+ 
++	rockchip_pcie_enable_l0s(pci);
++
+ 	return 0;
+ }
+ 
+@@ -271,6 +288,8 @@ static void rockchip_pcie_ep_init(struct dw_pcie_ep *ep)
+ 	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
+ 	enum pci_barno bar;
+ 
++	rockchip_pcie_enable_l0s(pci);
++
+ 	for (bar = 0; bar < PCI_STD_NUM_BARS; bar++)
+ 		dw_pcie_ep_reset_bar(pci, bar);
+ };
+@@ -599,6 +618,10 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
+ 	rockchip->pci.ops = &dw_pcie_ops;
+ 	rockchip->data = data;
+ 
++	/* Default N_FTS value (210) is broken, override it to 255 */
++	rockchip->pci.n_fts[0] = 255; /* Gen1 */
++	rockchip->pci.n_fts[1] = 255; /* Gen2+ */
++
+ 	ret = rockchip_pcie_resource_get(pdev, rockchip);
+ 	if (ret)
+ 		return ret;
+-- 
+2.49.0
+

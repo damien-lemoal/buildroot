@@ -1,0 +1,46 @@
+From a1fa5d5535cab0e82467768a21bd4cc9acf4cb95 Mon Sep 17 00:00:00 2001
+From: Shawn Lin <shawn.lin@rock-chips.com>
+Date: Thu, 17 Apr 2025 08:35:09 +0800
+Subject: [PATCH 1/7] PCI: dw-rockchip: Remove PCIE_L0S_ENTRY check from
+ rockchip_pcie_link_up()
+
+Two mistakes here:
+1. 0x11 is L0 not L0S, so the naming is wrong from the very beginning.
+2. It's totally broken if enabling ASPM as rockchip_pcie_link_up() treat
+other states, for instance, L0S or L1 as link down which is obviously
+wrong.
+
+Remove the check.
+
+Fixes: 0e898eb8df4e ("PCI: rockchip-dwc: Add Rockchip RK356X host controller driver")
+Signed-off-by: Shawn Lin <shawn.lin@rock-chips.com>
+Reviewed-by: Niklas Cassel <cassel@kernel.org>
+---
+ drivers/pci/controller/dwc/pcie-dw-rockchip.c | 4 +---
+ 1 file changed, 1 insertion(+), 3 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-dw-rockchip.c b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+index c624b7ebd118..21dc99c9d95c 100644
+--- a/drivers/pci/controller/dwc/pcie-dw-rockchip.c
++++ b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+@@ -44,7 +44,6 @@
+ #define PCIE_LINKUP			(PCIE_SMLH_LINKUP | PCIE_RDLH_LINKUP)
+ #define PCIE_RDLH_LINK_UP_CHGED		BIT(1)
+ #define PCIE_LINK_REQ_RST_NOT_INT	BIT(2)
+-#define PCIE_L0S_ENTRY			0x11
+ #define PCIE_CLIENT_GENERAL_CONTROL	0x0
+ #define PCIE_CLIENT_INTR_STATUS_LEGACY	0x8
+ #define PCIE_CLIENT_INTR_MASK_LEGACY	0x1c
+@@ -177,8 +176,7 @@ static int rockchip_pcie_link_up(struct dw_pcie *pci)
+ 	struct rockchip_pcie *rockchip = to_rockchip_pcie(pci);
+ 	u32 val = rockchip_pcie_get_ltssm(rockchip);
+ 
+-	if ((val & PCIE_LINKUP) == PCIE_LINKUP &&
+-	    (val & PCIE_LTSSM_STATUS_MASK) == PCIE_L0S_ENTRY)
++	if ((val & PCIE_LINKUP) == PCIE_LINKUP)
+ 		return 1;
+ 
+ 	return 0;
+-- 
+2.49.0
+

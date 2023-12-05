@@ -1,0 +1,62 @@
+From 0093bf950d8a7a911f3396af87e1b5442cac4bb6 Mon Sep 17 00:00:00 2001
+From: Shawn Lin <shawn.lin@rock-chips.com>
+Date: Thu, 17 Apr 2025 08:35:11 +0800
+Subject: [PATCH 3/7] PCI: dw-rockchip: Move
+ rockchip_pcie_ep_hide_broken_ats_cap_rk3588() to .init()
+
+There is no reason to call rockchip_pcie_ep_hide_broken_ats_cap_rk3588()
+from the pre_init() callback, instead of the normal init() callback.
+
+Thus, move the rockchip_pcie_ep_hide_broken_ats_cap_rk3588() call from
+the pre_init() callback to the init() callback, as:
+1) init() will still be called before link training is enabled, so the
+   quirk will still be applied before the host has can see our device.
+2) This allows us to remove the pre_init() callback, as it is now unused.
+3) It is a more robust design, as the init() callback is called by
+   dw_pcie_ep_init_registers(), which will always be called after a core
+   reset. The pre_init() callback is only called once, at probe time.
+
+No functional changes.
+
+Suggested-by: Niklas Cassel <cassel@kernel.org>
+Signed-off-by: Shawn Lin <shawn.lin@rock-chips.com>
+Reviewed-by: Niklas Cassel <cassel@kernel.org>
+Tested-by: Niklas Cassel <cassel@kernel.org>
+---
+ drivers/pci/controller/dwc/pcie-dw-rockchip.c | 7 +------
+ 1 file changed, 1 insertion(+), 6 deletions(-)
+
+diff --git a/drivers/pci/controller/dwc/pcie-dw-rockchip.c b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+index e4519c020ea9..7790a9f33e48 100644
+--- a/drivers/pci/controller/dwc/pcie-dw-rockchip.c
++++ b/drivers/pci/controller/dwc/pcie-dw-rockchip.c
+@@ -278,17 +278,13 @@ static void rockchip_pcie_ep_hide_broken_ats_cap_rk3588(struct dw_pcie_ep *ep)
+ 		dev_err(dev, "failed to hide ATS capability\n");
+ }
+ 
+-static void rockchip_pcie_ep_pre_init(struct dw_pcie_ep *ep)
+-{
+-	rockchip_pcie_ep_hide_broken_ats_cap_rk3588(ep);
+-}
+-
+ static void rockchip_pcie_ep_init(struct dw_pcie_ep *ep)
+ {
+ 	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
+ 	enum pci_barno bar;
+ 
+ 	rockchip_pcie_enable_l0s(pci);
++	rockchip_pcie_ep_hide_broken_ats_cap_rk3588(ep);
+ 
+ 	for (bar = 0; bar < PCI_STD_NUM_BARS; bar++)
+ 		dw_pcie_ep_reset_bar(pci, bar);
+@@ -359,7 +355,6 @@ rockchip_pcie_get_features(struct dw_pcie_ep *ep)
+ 
+ static const struct dw_pcie_ep_ops rockchip_pcie_ep_ops = {
+ 	.init = rockchip_pcie_ep_init,
+-	.pre_init = rockchip_pcie_ep_pre_init,
+ 	.raise_irq = rockchip_pcie_raise_irq,
+ 	.get_features = rockchip_pcie_get_features,
+ };
+-- 
+2.49.0
+
