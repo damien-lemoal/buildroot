@@ -1,0 +1,62 @@
+From 87dec30bbf068c22d61529355ffd442308984125 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Mon, 25 Dec 2023 15:49:03 +0900
+Subject: [PATCH 18/25] PCI: rockship-ep: Introduce rockchip_pcie_ep_stop()
+
+Define the EPC operation ->stop for the rockchip endpoint driver with
+the function rockchip_pcie_ep_stop(). This function disables link
+training and the controller configuration, as the reverse to what
+the start operation defined with rockchip_pcie_ep_start() does.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 13 +++++++++++++
+ drivers/pci/controller/pcie-rockchip.h    |  1 +
+ 2 files changed, 14 insertions(+)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index 99f26f4a485b..a801e040bcad 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -468,6 +468,18 @@ static int rockchip_pcie_ep_start(struct pci_epc *epc)
+ 	return 0;
+ }
+ 
++static void rockchip_pcie_ep_stop(struct pci_epc *epc)
++{
++	struct rockchip_pcie_ep *ep = epc_get_drvdata(epc);
++	struct rockchip_pcie *rockchip = &ep->rockchip;
++
++	/* Stop link training and disable configuration */
++	rockchip_pcie_write(rockchip,
++			    PCIE_CLIENT_CONF_DISABLE |
++			    PCIE_CLIENT_LINK_TRAIN_DISABLE,
++			    PCIE_CLIENT_CONFIG);
++}
++
+ static const struct pci_epc_features rockchip_pcie_epc_features = {
+ 	.linkup_notifier = false,
+ 	.msi_capable = true,
+@@ -492,6 +504,7 @@ static const struct pci_epc_ops rockchip_pcie_epc_ops = {
+ 	.get_msi	= rockchip_pcie_ep_get_msi,
+ 	.raise_irq	= rockchip_pcie_ep_raise_irq,
+ 	.start		= rockchip_pcie_ep_start,
++	.stop		= rockchip_pcie_ep_stop,
+ 	.get_features	= rockchip_pcie_ep_get_features,
+ };
+ 
+diff --git a/drivers/pci/controller/pcie-rockchip.h b/drivers/pci/controller/pcie-rockchip.h
+index 30398156095f..0263f158ee8d 100644
+--- a/drivers/pci/controller/pcie-rockchip.h
++++ b/drivers/pci/controller/pcie-rockchip.h
+@@ -32,6 +32,7 @@
+ #define   PCIE_CLIENT_CONF_ENABLE	  HIWORD_UPDATE_BIT(0x0001)
+ #define   PCIE_CLIENT_CONF_DISABLE       HIWORD_UPDATE(0x0001, 0)
+ #define   PCIE_CLIENT_LINK_TRAIN_ENABLE	  HIWORD_UPDATE_BIT(0x0002)
++#define   PCIE_CLIENT_LINK_TRAIN_DISABLE  HIWORD_UPDATE(0x0002, 0)
+ #define   PCIE_CLIENT_ARI_ENABLE	  HIWORD_UPDATE_BIT(0x0008)
+ #define   PCIE_CLIENT_CONF_LANE_NUM(x)	  HIWORD_UPDATE(0x0030, ENCODE_LANES(x))
+ #define   PCIE_CLIENT_MODE_RC		  HIWORD_UPDATE_BIT(0x0040)
+-- 
+2.46.2
+

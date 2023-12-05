@@ -1,0 +1,64 @@
+From 1091ee22f35b730442709d56b0d60b3e1e859ead Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Fri, 4 Oct 2024 08:41:17 +0900
+Subject: [PATCH 05/25] PCI: endpoint: Update documentation
+
+Document the new functions pci_epc_map_align(), pci_epc_mem_map() and
+pci_epc_mem_unmap(). Also add the documentation for the functions
+pci_epc_map_addr() and pci_epc_unmap_addr() that were missing.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+Reviewed-by: Niklas Cassel <cassel@kernel.org>
+---
+ Documentation/PCI/endpoint/pci-endpoint.rst | 35 +++++++++++++++++++++
+ 1 file changed, 35 insertions(+)
+
+diff --git a/Documentation/PCI/endpoint/pci-endpoint.rst b/Documentation/PCI/endpoint/pci-endpoint.rst
+index 21507e3cc238..8e86cd209f9a 100644
+--- a/Documentation/PCI/endpoint/pci-endpoint.rst
++++ b/Documentation/PCI/endpoint/pci-endpoint.rst
+@@ -117,6 +117,41 @@ by the PCI endpoint function driver.
+    The PCI endpoint function driver should use pci_epc_mem_free_addr() to
+    free the memory space allocated using pci_epc_mem_alloc_addr().
+ 
++* pci_epc_map_align()
++
++   A PCI endpoint controller may impose constraints on the RC PCI addresses
++   that can be mapped. The function pci_epc_map_align() allows endpoint
++   function drivers to discover and handle such constraints by providing the
++   size of the memory that must be allocated with pci_epc_mem_alloc_addr()
++   for successfully mapping any RC PCI address. This function will also
++   indicate the size of the PCI address range that can be mapped, which can be
++   less than the requested size, as well as the offset into the allocated
++   memory to use for accessing the RC PCI address range that can be mapped.
++
++* pci_epc_map_addr()
++
++  A PCI endpoint function driver should use pci_epc_map_addr() to map to a RC
++  PCI address the CPU address of local memory obtained with
++  pci_epc_mem_alloc_addr().
++
++* pci_epc_unmap_addr()
++
++  A PCI endpoint function driver should use pci_epc_unmap_addr() to unmap the
++  CPU address of local memory mapped to a RC address with pci_epc_map_addr().
++
++* pci_epc_mem_map()
++
++  A PCI endpoint function driver can use pci_epc_mem_map() to allocate and map
++  a RC PCI address range. This function combines calls to pci_epc_map_align(),
++  pci_epc_mem_alloc_addr() and pci_epc_mem_alloc_addr() into a single function
++  to simplify the PCI address mapping handling in endpoint function drivers.
++
++* pci_epc_mem_unmap()
++
++  A PCI endpoint function driver can use pci_epc_mem_unmap() to unmap and free
++  memory that was allocated and mapped using pci_epc_mem_map().
++
++
+ Other EPC APIs
+ ~~~~~~~~~~~~~~
+ 
+-- 
+2.46.2
+

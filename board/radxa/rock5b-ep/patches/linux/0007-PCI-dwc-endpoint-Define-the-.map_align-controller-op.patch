@@ -1,0 +1,62 @@
+From c424087717c7f68549c9f247654935f8fa922600 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Thu, 3 Oct 2024 15:33:12 +0900
+Subject: [PATCH 07/25] PCI: dwc: endpoint: Define the .map_align() controller
+ operation
+
+The function dw_pcie_prog_outbound_atu() used to program outbound ATU
+entries for mapping RC PCI addresses to local CPU addresses does not
+allow PCI addresses that are not aligned to the value of region_align
+of struct dw_pcie. This value is determined from the iATU hardware
+registers during probing of the iATU (done by dw_pcie_iatu_detect()).
+This value is thus valid for all DWC PCIe controllers, and valid
+regardless of the hardware configuration used when synthesizing the
+DWC PCIe controller.
+
+Handle this PCI address alignment constraint by defining the endpoint
+controller .map_align() operation to calculate a mapping size and the
+offset into the mapping based on the requested RC PCI address and size
+to map.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+Reviewed-by: Niklas Cassel <cassel@kernel.org>
+---
+ drivers/pci/controller/dwc/pcie-designware-ep.c | 15 +++++++++++++++
+ 1 file changed, 15 insertions(+)
+
+diff --git a/drivers/pci/controller/dwc/pcie-designware-ep.c b/drivers/pci/controller/dwc/pcie-designware-ep.c
+index 43ba5c6738df..501e527c188e 100644
+--- a/drivers/pci/controller/dwc/pcie-designware-ep.c
++++ b/drivers/pci/controller/dwc/pcie-designware-ep.c
+@@ -268,6 +268,20 @@ static int dw_pcie_find_index(struct dw_pcie_ep *ep, phys_addr_t addr,
+ 	return -EINVAL;
+ }
+ 
++static int dw_pcie_ep_map_align(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
++				struct pci_epc_map *map)
++{
++	struct dw_pcie_ep *ep = epc_get_drvdata(epc);
++	struct dw_pcie *pci = to_dw_pcie_from_ep(ep);
++	size_t mask = pci->region_align - 1;
++
++	map->map_pci_addr = map->pci_addr & ~mask;
++	map->map_ofst = map->pci_addr & mask;
++	map->map_size = ALIGN(map->map_ofst + map->pci_size, ep->page_size);
++
++	return 0;
++}
++
+ static void dw_pcie_ep_unmap_addr(struct pci_epc *epc, u8 func_no, u8 vfunc_no,
+ 				  phys_addr_t addr)
+ {
+@@ -444,6 +458,7 @@ static const struct pci_epc_ops epc_ops = {
+ 	.write_header		= dw_pcie_ep_write_header,
+ 	.set_bar		= dw_pcie_ep_set_bar,
+ 	.clear_bar		= dw_pcie_ep_clear_bar,
++	.map_align		= dw_pcie_ep_map_align,
+ 	.map_addr		= dw_pcie_ep_map_addr,
+ 	.unmap_addr		= dw_pcie_ep_unmap_addr,
+ 	.set_msi		= dw_pcie_ep_set_msi,
+-- 
+2.46.2
+

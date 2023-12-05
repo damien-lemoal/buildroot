@@ -1,0 +1,43 @@
+From e487f8ffd783e59f10dee3ebccfbdaecf3cbaff8 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Thu, 3 Oct 2024 09:39:01 +0900
+Subject: [PATCH 08/25] PCI: endpoint: test: Synchronously cancel command
+ handler work
+
+Use cancel_delayed_work_sync() in pci_epf_test_epc_deinit() to ensure
+that the command handler is really stopped when proceeding with dma
+and bar cleanup.
+
+The same change is also done in pci_epf_test_link_down() to ensure that
+the link down handling completes with the command handler fully stopped.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/endpoint/functions/pci-epf-test.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/pci/endpoint/functions/pci-epf-test.c b/drivers/pci/endpoint/functions/pci-epf-test.c
+index a73bc0771d35..c2e7f67e5107 100644
+--- a/drivers/pci/endpoint/functions/pci-epf-test.c
++++ b/drivers/pci/endpoint/functions/pci-epf-test.c
+@@ -800,7 +800,7 @@ static void pci_epf_test_epc_deinit(struct pci_epf *epf)
+ {
+ 	struct pci_epf_test *epf_test = epf_get_drvdata(epf);
+ 
+-	cancel_delayed_work(&epf_test->cmd_handler);
++	cancel_delayed_work_sync(&epf_test->cmd_handler);
+ 	pci_epf_test_clean_dma_chan(epf_test);
+ 	pci_epf_test_clear_bar(epf);
+ }
+@@ -931,7 +931,7 @@ static void pci_epf_test_unbind(struct pci_epf *epf)
+ 	struct pci_epf_test *epf_test = epf_get_drvdata(epf);
+ 	struct pci_epc *epc = epf->epc;
+ 
+-	cancel_delayed_work(&epf_test->cmd_handler);
++	cancel_delayed_work_sync(&epf_test->cmd_handler);
+ 	if (epc->init_complete) {
+ 		pci_epf_test_clean_dma_chan(epf_test);
+ 		pci_epf_test_clear_bar(epf);
+-- 
+2.46.2
+

@@ -1,0 +1,30 @@
+From f606fed2555ddc14eaf541558c2c40e1b6522a0f Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Fri, 22 Dec 2023 09:48:22 +0900
+Subject: [PATCH 13/25] PCI: rockchip-ep: Improve rockchip_pcie_ep_map_addr()
+
+Add a check to verify that the outbound region to be used for mapping an
+address is not already in use.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index 89ebdf3e4737..edb84fb1ba39 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -243,6 +243,9 @@ static int rockchip_pcie_ep_map_addr(struct pci_epc *epc, u8 fn, u8 vfn,
+ 	struct rockchip_pcie *pcie = &ep->rockchip;
+ 	u32 r = rockchip_ob_region(addr);
+ 
++	if (test_bit(r, &ep->ob_region_map))
++		return -EBUSY;
++
+ 	rockchip_pcie_prog_ep_ob_atu(pcie, fn, r, addr, pci_addr, size);
+ 
+ 	set_bit(r, &ep->ob_region_map);
+-- 
+2.46.2
+
