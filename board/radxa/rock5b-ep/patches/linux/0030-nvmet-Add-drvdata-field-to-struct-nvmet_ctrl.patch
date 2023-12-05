@@ -1,0 +1,29 @@
+From 4d98e4ad1339f250810c391c5480b063207a2638 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Sat, 26 Oct 2024 16:24:26 +0900
+Subject: [PATCH 30/37] nvmet: Add drvdata field to struct nvmet_ctrl
+
+Allow a target driver to attach private data to a target controller by
+adding the new field drvdata to struct nvmet_ctrl.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/target/nvmet.h | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/nvme/target/nvmet.h b/drivers/nvme/target/nvmet.h
+index 01922f6febcf..ee84f5674b37 100644
+--- a/drivers/nvme/target/nvmet.h
++++ b/drivers/nvme/target/nvmet.h
+@@ -195,6 +195,8 @@ struct nvmet_ctrl {
+ 	struct nvmet_subsys	*subsys;
+ 	struct nvmet_sq		**sqs;
+ 
++	void			*drvdata;
++
+ 	bool			reset_tbkas;
+ 
+ 	struct mutex		lock;
+-- 
+2.47.0
+

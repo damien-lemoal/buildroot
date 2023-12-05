@@ -1,0 +1,111 @@
+From 3bd29163162e024b84fc46e0d85534d0d7905e74 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Sat, 26 Oct 2024 20:02:20 +0900
+Subject: [PATCH 32/37] nvmet: Introduce nvmet_sq_create() and
+ nvmet_cq_create()
+
+Introduce the new functions nvmet_sq_create() and nvmet_cq_create() to
+allow a target driver to initialize and setup admin and IO queues
+directly, without needing to execute connect fabrics commands.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/target/core.c  | 57 +++++++++++++++++++++++++++++++++++++
+ drivers/nvme/target/nvmet.h |  4 +++
+ 2 files changed, 61 insertions(+)
+
+diff --git a/drivers/nvme/target/core.c b/drivers/nvme/target/core.c
+index 480410e81839..5017bc31948f 100644
+--- a/drivers/nvme/target/core.c
++++ b/drivers/nvme/target/core.c
+@@ -785,6 +785,7 @@ void nvmet_cq_setup(struct nvmet_ctrl *ctrl, struct nvmet_cq *cq,
+ 	cq->qid = qid;
+ 	cq->size = size;
+ }
++EXPORT_SYMBOL_GPL(nvmet_cq_setup);
+ 
+ void nvmet_sq_setup(struct nvmet_ctrl *ctrl, struct nvmet_sq *sq,
+ 		u16 qid, u16 size)
+@@ -803,6 +804,62 @@ static void nvmet_confirm_sq(struct percpu_ref *ref)
+ 	complete(&sq->confirm_done);
+ }
+ 
++static int nvmet_check_qid(struct nvmet_ctrl *ctrl, u16 qid)
++{
++	if (!ctrl->sqs)
++		return -ENODEV;
++
++	if (qid > ctrl->subsys->max_qid)
++		return -EINVAL;
++
++	if (ctrl->sqs[qid])
++		return -EEXIST;
++
++	return 0;
++}
++
++int nvmet_cq_create(struct nvmet_ctrl *ctrl, struct nvmet_cq *cq,
++		u16 qid, u16 size)
++{
++	int ret;
++
++	ret = nvmet_check_qid(ctrl, qid);
++	if (ret)
++		return ret;
++
++	nvmet_cq_setup(ctrl, cq, qid, size);
++
++	return 0;
++}
++EXPORT_SYMBOL_GPL(nvmet_cq_create);
++
++int nvmet_sq_create(struct nvmet_ctrl *ctrl, struct nvmet_sq *sq,
++		u16 qid, u16 size)
++{
++	int ret;
++
++	if (!kref_get_unless_zero(&ctrl->ref))
++		return -ENODEV;
++
++	ret = nvmet_check_qid(ctrl, qid);
++	if (ret)
++		goto out_put;
++
++	ret = nvmet_sq_init(sq);
++	if (ret)
++		goto out_put;
++
++	nvmet_sq_setup(ctrl, sq, qid, size);
++	sq->ctrl = ctrl;
++
++	return 0;
++
++out_put:
++	nvmet_ctrl_put(ctrl);
++	return ret;
++}
++EXPORT_SYMBOL_GPL(nvmet_sq_create);
++
+ void nvmet_sq_destroy(struct nvmet_sq *sq)
+ {
+ 	struct nvmet_ctrl *ctrl = sq->ctrl;
+diff --git a/drivers/nvme/target/nvmet.h b/drivers/nvme/target/nvmet.h
+index 060e9ca5c934..ca3a7219710c 100644
+--- a/drivers/nvme/target/nvmet.h
++++ b/drivers/nvme/target/nvmet.h
+@@ -493,8 +493,12 @@ void nvmet_execute_keep_alive(struct nvmet_req *req);
+ 
+ void nvmet_cq_setup(struct nvmet_ctrl *ctrl, struct nvmet_cq *cq, u16 qid,
+ 		u16 size);
++int nvmet_cq_create(struct nvmet_ctrl *ctrl, struct nvmet_cq *cq, u16 qid,
++		u16 size);
+ void nvmet_sq_setup(struct nvmet_ctrl *ctrl, struct nvmet_sq *sq, u16 qid,
+ 		u16 size);
++int nvmet_sq_create(struct nvmet_ctrl *ctrl, struct nvmet_sq *sq, u16 qid,
++		u16 size);
+ void nvmet_sq_destroy(struct nvmet_sq *sq);
+ int nvmet_sq_init(struct nvmet_sq *sq);
+ 
+-- 
+2.47.0
+

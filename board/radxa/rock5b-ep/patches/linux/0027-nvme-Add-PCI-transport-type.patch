@@ -1,0 +1,74 @@
+From 88063342228171575bb885138085a7482adb2962 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Wed, 23 Oct 2024 17:22:55 +0900
+Subject: [PATCH 27/37] nvme: Add PCI transport type
+
+Define the transport type NVMF_TRTYPE_PCI (253) for PCI endpoint
+targets. The helper functions nvmet_is_pci_ctrl() and nvmet_is_pci_req()
+are also introduced to help identify (respectively) a target controller
+using the PCI transport and command requests issued from a PCI target
+controller.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/target/configfs.c |  2 ++
+ drivers/nvme/target/nvmet.h    | 10 ++++++++++
+ include/linux/nvme.h           |  1 +
+ 3 files changed, 13 insertions(+)
+
+diff --git a/drivers/nvme/target/configfs.c b/drivers/nvme/target/configfs.c
+index 685e89b35d33..ea5f248c9a0e 100644
+--- a/drivers/nvme/target/configfs.c
++++ b/drivers/nvme/target/configfs.c
+@@ -37,6 +37,7 @@ static struct nvmet_type_name_map nvmet_transport[] = {
+ 	{ NVMF_TRTYPE_RDMA,	"rdma" },
+ 	{ NVMF_TRTYPE_FC,	"fc" },
+ 	{ NVMF_TRTYPE_TCP,	"tcp" },
++	{ NVMF_TRTYPE_PCI,	"pci" },
+ 	{ NVMF_TRTYPE_LOOP,	"loop" },
+ };
+ 
+@@ -46,6 +47,7 @@ static const struct nvmet_type_name_map nvmet_addr_family[] = {
+ 	{ NVMF_ADDR_FAMILY_IP6,		"ipv6" },
+ 	{ NVMF_ADDR_FAMILY_IB,		"ib" },
+ 	{ NVMF_ADDR_FAMILY_FC,		"fc" },
++	{ NVMF_ADDR_FAMILY_PCI,		"pci" },
+ 	{ NVMF_ADDR_FAMILY_LOOP,	"loop" },
+ };
+ 
+diff --git a/drivers/nvme/target/nvmet.h b/drivers/nvme/target/nvmet.h
+index 190f55e6d753..9d4b1751cca9 100644
+--- a/drivers/nvme/target/nvmet.h
++++ b/drivers/nvme/target/nvmet.h
+@@ -640,6 +640,16 @@ static inline bool nvmet_is_disc_subsys(struct nvmet_subsys *subsys)
+     return subsys->type != NVME_NQN_NVME;
+ }
+ 
++static inline bool nvmet_is_pci_ctrl(struct nvmet_ctrl *ctrl)
++{
++	return ctrl->port->disc_addr.trtype == NVMF_TRTYPE_PCI;
++}
++
++static inline bool nvmet_is_pci_req(struct nvmet_req *req)
++{
++	return nvmet_is_pci_ctrl(req->sq->ctrl);
++}
++
+ #ifdef CONFIG_NVME_TARGET_PASSTHRU
+ void nvmet_passthru_subsys_free(struct nvmet_subsys *subsys);
+ int nvmet_passthru_ctrl_enable(struct nvmet_subsys *subsys);
+diff --git a/include/linux/nvme.h b/include/linux/nvme.h
+index b58d9405d65e..4d98c077a8c4 100644
+--- a/include/linux/nvme.h
++++ b/include/linux/nvme.h
+@@ -67,6 +67,7 @@ enum {
+ 	NVMF_TRTYPE_RDMA	= 1,	/* RDMA */
+ 	NVMF_TRTYPE_FC		= 2,	/* Fibre Channel */
+ 	NVMF_TRTYPE_TCP		= 3,	/* TCP/IP */
++	NVMF_TRTYPE_PCI		= 253,	/* Reserved for host usage */
+ 	NVMF_TRTYPE_LOOP	= 254,	/* Reserved for host usage */
+ 	NVMF_TRTYPE_MAX,
+ };
+-- 
+2.47.0
+

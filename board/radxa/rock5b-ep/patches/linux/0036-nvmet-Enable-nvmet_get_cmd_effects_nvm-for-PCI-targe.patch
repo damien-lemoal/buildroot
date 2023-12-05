@@ -1,0 +1,81 @@
+From 3050b14322def3adff218b18553b037b718326fd Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Sun, 27 Oct 2024 09:31:13 +0900
+Subject: [PATCH 36/37] nvmet: Enable nvmet_get_cmd_effects_nvm() for PCI
+ target controllers
+
+The I/O submission queue management commands (nvme_admin_delete_sq,
+nvme_admin_create_sq, nvme_admin_delete_cq, and nvme_admin_create_cq)
+are mandatory admin commands for I/O controllers. For a PCI target
+controller, these commands are thus mandatory and implementing support
+for them in the target driver a requirement.
+
+Modify nvmet_get_cmd_effects_nvm() to report these commands as
+supported in the command effects log page for a PCI target controller.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/target/admin-cmd.c | 16 +++++++++++++---
+ drivers/nvme/target/nvmet.h     |  5 -----
+ 2 files changed, 13 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/nvme/target/admin-cmd.c b/drivers/nvme/target/admin-cmd.c
+index 857c7d527fc0..07abd594a4cc 100644
+--- a/drivers/nvme/target/admin-cmd.c
++++ b/drivers/nvme/target/admin-cmd.c
+@@ -163,8 +163,18 @@ static void nvmet_execute_get_log_page_smart(struct nvmet_req *req)
+ 	nvmet_req_complete(req, status);
+ }
+ 
+-static void nvmet_get_cmd_effects_nvm(struct nvme_effects_log *log)
++static void nvmet_get_cmd_effects_nvm(struct nvmet_req *req,
++				      struct nvme_effects_log *log)
+ {
++	/* For a PCI target controller, advertize support for the . */
++	if (nvmet_is_pci_ctrl(req->sq->ctrl)) {
++		log->acs[nvme_admin_delete_sq] =
++		log->acs[nvme_admin_create_sq] =
++		log->acs[nvme_admin_delete_cq] =
++		log->acs[nvme_admin_create_cq] =
++			cpu_to_le32(NVME_CMD_EFFECTS_CSUPP);
++	}
++
+ 	log->acs[nvme_admin_get_log_page] =
+ 	log->acs[nvme_admin_identify] =
+ 	log->acs[nvme_admin_abort_cmd] =
+@@ -205,14 +215,14 @@ static void nvmet_execute_get_log_cmd_effects_ns(struct nvmet_req *req)
+ 
+ 	switch (req->cmd->get_log_page.csi) {
+ 	case NVME_CSI_NVM:
+-		nvmet_get_cmd_effects_nvm(log);
++		nvmet_get_cmd_effects_nvm(req, log);
+ 		break;
+ 	case NVME_CSI_ZNS:
+ 		if (!IS_ENABLED(CONFIG_BLK_DEV_ZONED)) {
+ 			status = NVME_SC_INVALID_IO_CMD_SET;
+ 			goto free;
+ 		}
+-		nvmet_get_cmd_effects_nvm(log);
++		nvmet_get_cmd_effects_nvm(req, log);
+ 		nvmet_get_cmd_effects_zns(log);
+ 		break;
+ 	default:
+diff --git a/drivers/nvme/target/nvmet.h b/drivers/nvme/target/nvmet.h
+index 86209a353628..9be352752179 100644
+--- a/drivers/nvme/target/nvmet.h
++++ b/drivers/nvme/target/nvmet.h
+@@ -666,11 +666,6 @@ static inline bool nvmet_is_pci_ctrl(struct nvmet_ctrl *ctrl)
+ 	return ctrl->port->disc_addr.trtype == NVMF_TRTYPE_PCI;
+ }
+ 
+-static inline bool nvmet_is_pci_req(struct nvmet_req *req)
+-{
+-	return nvmet_is_pci_ctrl(req->sq->ctrl);
+-}
+-
+ #ifdef CONFIG_NVME_TARGET_PASSTHRU
+ void nvmet_passthru_subsys_free(struct nvmet_subsys *subsys);
+ int nvmet_passthru_ctrl_enable(struct nvmet_subsys *subsys);
+-- 
+2.47.0
+
