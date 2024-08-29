@@ -1,6 +1,7 @@
 # Architecture
 BR2_aarch64=y
 BR2_cortex_a76_a55=y
+BR2_TOOLCHAIN_EXTERNAL=y
 
 # Linux headers same as kernel, a 6.7 series
 BR2_PACKAGE_HOST_LINUX_HEADERS_CUSTOM_6_7=y
