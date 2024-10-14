@@ -1,0 +1,44 @@
+From a8fba9d4c923b0a3b2c2f9c76744b1126dd014b5 Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Fri, 11 Oct 2024 18:52:39 +0900
+Subject: [PATCH 16/30] PCI: rockchip-ep: Rename rockchip_pcie_parse_ep_dt()
+
+To be consistent with the usual "get_resources" naming of driver
+functions that acquire controller resources like clocks, PHY etc, rename
+the function rockchip_pcie_parse_ep_dt() to
+rockchip_pcie_ep_get_resources().
+
+No functional changes.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/pci/controller/pcie-rockchip-ep.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/pci/controller/pcie-rockchip-ep.c b/drivers/pci/controller/pcie-rockchip-ep.c
+index dcd1b5415602..705f6741fa53 100644
+--- a/drivers/pci/controller/pcie-rockchip-ep.c
++++ b/drivers/pci/controller/pcie-rockchip-ep.c
+@@ -494,8 +494,8 @@ static const struct pci_epc_ops rockchip_pcie_epc_ops = {
+ 	.get_features	= rockchip_pcie_ep_get_features,
+ };
+ 
+-static int rockchip_pcie_parse_ep_dt(struct rockchip_pcie *rockchip,
+-				     struct rockchip_pcie_ep *ep)
++static int rockchip_pcie_ep_get_resources(struct rockchip_pcie *rockchip,
++					  struct rockchip_pcie_ep *ep)
+ {
+ 	struct device *dev = rockchip->dev;
+ 	int err;
+@@ -557,7 +557,7 @@ static int rockchip_pcie_ep_probe(struct platform_device *pdev)
+ 	ep->epc = epc;
+ 	epc_set_drvdata(epc, ep);
+ 
+-	err = rockchip_pcie_parse_ep_dt(rockchip, ep);
++	err = rockchip_pcie_ep_get_resources(rockchip, ep);
+ 	if (err)
+ 		return err;
+ 
+-- 
+2.47.0
+

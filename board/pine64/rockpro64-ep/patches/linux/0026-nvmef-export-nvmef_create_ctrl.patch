@@ -1,0 +1,53 @@
+From 8f18331f4cf27ec24754a119f1eabc3a248b217e Mon Sep 17 00:00:00 2001
+From: Damien Le Moal <dlemoal@kernel.org>
+Date: Mon, 21 Aug 2023 14:46:41 +0900
+Subject: [PATCH 26/30] nvmef: export nvmef_create_ctrl()
+
+Export nvmef_create_ctrl() to allow drivers to directly call this
+function instead of forcing the creation of a fabrics host controller
+with a write to /dev/nvmef. The export is restricted to the NVME_FABRICS
+namespace.
+
+Signed-off-by: Damien Le Moal <dlemoal@kernel.org>
+---
+ drivers/nvme/host/fabrics.c | 4 ++--
+ drivers/nvme/host/fabrics.h | 1 +
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/nvme/host/fabrics.c b/drivers/nvme/host/fabrics.c
+index 432efcbf9e2f..e3c990d50704 100644
+--- a/drivers/nvme/host/fabrics.c
++++ b/drivers/nvme/host/fabrics.c
+@@ -1276,8 +1276,7 @@ EXPORT_SYMBOL_GPL(nvmf_free_options);
+ 				 NVMF_OPT_FAIL_FAST_TMO | NVMF_OPT_DHCHAP_SECRET |\
+ 				 NVMF_OPT_DHCHAP_CTRL_SECRET)
+ 
+-static struct nvme_ctrl *
+-nvmf_create_ctrl(struct device *dev, const char *buf)
++struct nvme_ctrl *nvmf_create_ctrl(struct device *dev, const char *buf)
+ {
+ 	struct nvmf_ctrl_options *opts;
+ 	struct nvmf_transport_ops *ops;
+@@ -1346,6 +1345,7 @@ nvmf_create_ctrl(struct device *dev, const char *buf)
+ 	nvmf_free_options(opts);
+ 	return ERR_PTR(ret);
+ }
++EXPORT_SYMBOL_NS_GPL(nvmf_create_ctrl, NVME_FABRICS);
+ 
+ static const struct class nvmf_class = {
+ 	.name = "nvme-fabrics",
+diff --git a/drivers/nvme/host/fabrics.h b/drivers/nvme/host/fabrics.h
+index 21d75dc4a3a0..2dd3aeb8c53a 100644
+--- a/drivers/nvme/host/fabrics.h
++++ b/drivers/nvme/host/fabrics.h
+@@ -214,6 +214,7 @@ static inline unsigned int nvmf_nr_io_queues(struct nvmf_ctrl_options *opts)
+ 		min(opts->nr_poll_queues, num_online_cpus());
+ }
+ 
++struct nvme_ctrl *nvmf_create_ctrl(struct device *dev, const char *buf);
+ int nvmf_reg_read32(struct nvme_ctrl *ctrl, u32 off, u32 *val);
+ int nvmf_reg_read64(struct nvme_ctrl *ctrl, u32 off, u64 *val);
+ int nvmf_reg_write32(struct nvme_ctrl *ctrl, u32 off, u32 val);
+-- 
+2.47.0
+
