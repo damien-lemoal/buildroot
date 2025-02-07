@@ -176,7 +176,8 @@ UBOOT_MAKE_OPTS += \
 	ARCH=$(UBOOT_ARCH) \
 	HOSTCC="$(HOSTCC) $(subst -I/,-isystem /,$(subst -I /,-isystem /,$(HOST_CFLAGS)))" \
 	HOSTLDFLAGS="$(HOST_LDFLAGS)" \
-	$(call qstrip,$(BR2_TARGET_UBOOT_CUSTOM_MAKEOPTS))
+	$(call qstrip,$(BR2_TARGET_UBOOT_CUSTOM_MAKEOPTS)) \
+	SCP=$(word 1, $(SCP))
 
 # Disable FDPIC if enabled by default in toolchain
 ifeq ($(BR2_BINFMT_FDPIC),y)
